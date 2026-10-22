@@ -15,9 +15,11 @@ const BASE = await (await fetch('base.json')).json();
 const NOTES = BASE.notes, WARM = BASE.warm;
 // Músicas: importadas pela pessoa e guardadas só neste aparelho (IndexedDB). O site público não tem nenhuma música.
 const SongDB = {
-  open() { return new Promise((res, rej) => { const r = indexedDB.open('coral-songs', 1); r.onupgradeneeded = () => r.result.createObjectStore('songs', { keyPath: 'id' }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  open() { return new Promise((res, rej) => { const r = indexedDB.open('coral-songs', 2); r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('songs')) d.createObjectStore('songs', { keyPath: 'id' }); if (!d.objectStoreNames.contains('pdfs')) d.createObjectStore('pdfs', { keyPath: 'id' }); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
   async all() { const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('songs').objectStore('songs').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); }); },
   async put(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').put(v); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
+  async getPdf(id) { const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('pdfs').objectStore('pdfs').get(id); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); },
+  async putPdf(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('pdfs', 'readwrite'); t.objectStore('pdfs').put(v); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
   async del(id) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').delete(id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
 };
 let SONGS = []; try { SONGS = await SongDB.all(); } catch (e) {}
@@ -173,6 +175,86 @@ document.querySelectorAll('.v80').forEach(b => b.onclick = () => setBpm(80));
 function setMode(v) { mode = v; $('mN').setAttribute('aria-pressed', v === 'nota'); $('mL').setAttribute('aria-pressed', v === 'linha'); }
 $('mN').onclick = () => setMode('nota'); $('mL').onclick = () => setMode('linha');
 
+/* ================= PARTITURA (o PDF da pessoa, guardado só no aparelho) ================= */
+const Score = {
+  pdf: null, pages: {}, _lib: null,
+  has() { return !!(PACK && PACK.score && PACK.score.boxes && Object.keys(PACK.score.boxes).length); },
+  lib() { if (!this._lib) this._lib = import('./pdf.min.mjs').then(m => { m.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', location.href).href; return m; }); return this._lib; },
+  async load() {
+    if (!this.has()) return false; if (this.pdf) return true;
+    const rec = await SongDB.getPdf(PACK.id); if (!rec) return false;
+    const lib = await this.lib(); this.pdf = await lib.getDocument({ data: new Uint8Array(await rec.blob.arrayBuffer()) }).promise; return true;
+  },
+  async importFile(f) {
+    const lib = await this.lib(); const buf = await f.arrayBuffer();
+    const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+    if (doc.numPages !== PACK.score.pages) throw new Error('paginas');
+    await SongDB.putPdf({ id: PACK.id, blob: new Blob([buf], { type: 'application/pdf' }) });
+    this.pdf = doc; this.pages = {}; document.dispatchEvent(new Event('score-ready'));
+  },
+  async page(n) {
+    if (this.pages[n]) return this.pages[n];
+    const pg = await this.pdf.getPage(n), v1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1800 / v1.width });
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await pg.render({ canvasContext: ctx, viewport: vp }).promise; this.pages[n] = c; return c;
+  }
+};
+// Mostra a(s) linha(s) da partitura de um trecho, com um quadrado vermelho no compasso que está tocando.
+// mode 'all' = todas as linhas do trecho; 'current' = só a linha do compasso atual.
+function ScoreView(box, meas, mode) {
+  const B = PACK.score.boxes, sysKey = m => { const b = B[m]; return b ? b.p + '|' + b.y0 : null; };
+  const systems = []; const seen = {};
+  meas.forEach(([m]) => { const k = sysKey(m); if (k && !seen[k]) { seen[k] = { key: k, ms: [] }; systems.push(seen[k]); } if (k && !seen[k].ms.includes(m)) seen[k].ms.push(m); });
+  const el = {}; let shown = null, lastM = null;
+  async function drawSystem(sy) {
+    const bs = sy.ms.map(m => B[m]), p = bs[0].p, y0 = bs[0].y0, y1 = bs[0].y1;
+    const x0 = Math.max(0, Math.min(...bs.map(b => b.x0)) - 0.015), x1 = Math.min(1, Math.max(...bs.map(b => b.x1)) + 0.01);
+    const img = await Score.page(p), W = img.width, H = img.height;
+    const wrap = document.createElement('div'); wrap.className = 'scorerow';
+    const inner = document.createElement('div'); inner.className = 'scoreinner'; inner.style.width = (innerWidth < 700 ? Math.min(260, Math.max(100, Math.round(sy.ms.length * 48))) : 100) + '%'; wrap.appendChild(inner);
+    const c = document.createElement('canvas'); const sw = (x1 - x0) * W, sh = (y1 - y0) * H;
+    c.width = Math.round(sw); c.height = Math.round(sh); c.getContext('2d').drawImage(img, x0 * W, y0 * H, sw, sh, 0, 0, sw, sh);
+    inner.appendChild(c);
+    sy.ms.forEach(m => { const b = B[m], d = document.createElement('div'); d.className = 'mbox'; d.style.left = ((b.x0 - x0) / (x1 - x0) * 100) + '%'; d.style.width = ((b.x1 - b.x0) / (x1 - x0) * 100) + '%'; d.dataset.m = m; inner.appendChild(d); (el[m] = el[m] || []).push(d); });
+    return wrap;
+  }
+  async function build() {
+    box.innerHTML = '';
+    if (!(await Score.load())) { box.appendChild(importer()); return; }
+    const tip = document.createElement('p'); tip.className = 'lead'; tip.textContent = 'Leia só a linha de palavras embaixo das notas. O quadrado vermelho mostra onde a música está.'; box.appendChild(tip);
+    if (mode === 'all') for (const sy of systems) box.appendChild(await drawSystem(sy));
+    else { const holder = document.createElement('div'); holder.className = 'scorehold'; box.appendChild(holder); }
+  }
+  async function showSystem(sy) {
+    if (shown === sy) return; shown = sy; const holder = box.querySelector('.scorehold'); if (!holder) return;
+    Object.keys(el).forEach(k => delete el[k]); const w = await drawSystem(sy); holder.innerHTML = ''; holder.appendChild(w); lastM = null;
+  }
+  const ready = build();
+  return {
+    ready,
+    highlight(beat) {
+      const cur = meas.find(x => beat >= x[1] && beat < x[2]); const m = cur ? cur[0] : null;
+      if (mode !== 'all' && m != null) { const k = sysKey(m), sy = systems.find(x => x.key === k); if (sy && sy !== shown) { showSystem(sy); } }
+      if (m === lastM) return; lastM = m;
+      box.querySelectorAll('.mbox.on').forEach(d => d.classList.remove('on'));
+      (el[m] || []).forEach(d => { d.classList.add('on'); const w = d.parentElement.parentElement; if (w.scrollWidth > w.clientWidth + 4) w.scrollTo({ left: Math.max(0, d.offsetLeft - w.clientWidth * 0.25), behavior: reduce ? 'auto' : 'smooth' }); });
+    },
+    reset() { box.querySelectorAll('.mbox.on').forEach(d => d.classList.remove('on')); lastM = null; }
+  };
+}
+function importer() {
+  const d = document.createElement('div'); d.className = 'panel alert';
+  d.innerHTML = '<h2>Partitura de ' + '<span></span></h2><p class="msg">Importe o PDF da partitura que o professor mandou. Ele fica guardado só neste iPhone. Faça isso uma vez só.</p><div class="row"><label class="file btn pri"><input type="file" accept="application/pdf,.pdf">Importar partitura (PDF)</label><span class="save"></span></div>';
+  d.querySelector('span').textContent = PACK.title;
+  const inp = d.querySelector('input'), msg = d.querySelector('.save');
+  inp.onchange = async ev => { const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; msg.textContent = 'Abrindo…';
+    try { await Score.importFile(f); msg.textContent = 'Partitura salva ✓'; }
+    catch (e) { msg.textContent = e && e.message === 'paginas' ? 'Esse PDF não parece ser a partitura de ' + PACK.title + '. Confira o arquivo.' : 'Não consegui abrir esse PDF.'; } };
+  return d;
+}
+
+if (Score.has()) Score.load().catch(() => {});
 /* ================= TREINAR ================= */
 let active = null, raf = 0, lastLine = null;
 function stopSec() {
@@ -189,7 +271,7 @@ function startSec(s, beat) {
 function tickSec() {
   if (!active) return; const s = active, beat = A.main.currentTime / (60 / bpm) - 4;
   s.card.querySelectorAll('.count i').forEach((d, i) => d.classList.toggle('hit', beat < 0 && i <= Math.floor(beat + 4)));
-  const cur = karaoke(s.els, beat);
+  const cur = karaoke(s.els, beat); if (s.score) s.score.highlight(beat);
   if (cur) { const ln = cur.parentElement; if (ln !== lastLine) { lastLine = ln; const r = ln.getBoundingClientRect(); if (r.top < 110 || r.bottom > innerHeight - 40) ln.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' }); } }
   raf = requestAnimationFrame(tickSec);
 }
@@ -216,7 +298,9 @@ function renderSecLines(s) {
 SECS.forEach(s => {
   const rg = rangeOf(s.lines); s.rg = rg; applyLyrics(s);
   const el = document.createElement('section'); el.className = 'sec'; el.id = 'sec-' + s.id;
-  el.innerHTML = '<div class="sh"><button class="play" aria-label="Tocar">' + PLAY + '</button><div><div class="n"></div><h3></h3></div><div class="count" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="tip"></p><div class="lines"></div>'
+  el.innerHTML = '<div class="sh"><button class="play" aria-label="Tocar">' + PLAY + '</button><div><div class="n"></div><h3></h3></div><div class="count" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="tip"></p>'
+    + (Score.has() && s.meas ? '<div class="row"><button class="btn scb">📄 Ver partitura</button></div><div class="scorebox" hidden></div>' : '')
+    + '<div class="lines"></div>'
     + '<div class="row"><button class="btn lyrb">✎ ' + (PACK && PACK.noLyrics ? 'Escrever a letra' : 'Editar a letra') + '</button><span class="save lyrn"></span></div>'
     + '<div class="lyred" hidden><textarea rows="4"></textarea><p class="lead lyrh"></p><div class="row"><button class="btn pri lyrs">Salvar letra</button><button class="btn lyrc">Cancelar</button><button class="btn lyrx">Apagar</button></div></div>';
   el.querySelector('.n').textContent = s.id === '0' ? 'Extra' : 'Trecho ' + s.id;
@@ -231,7 +315,10 @@ SECS.forEach(s => {
   el.querySelector('.lyrs').onclick = () => save(ta.value.trim());
   el.querySelector('.lyrx').onclick = () => save('');
   el.querySelector('.play').onclick = () => { if (active === s) stopSec(); else startSec(s, null); };
+  const scb = el.querySelector('.scb');
+  if (scb) scb.onclick = () => { const bx = el.querySelector('.scorebox'); bx.hidden = !bx.hidden; scb.textContent = bx.hidden ? '📄 Ver partitura' : '📄 Esconder partitura'; if (!bx.hidden && !s.score) s.score = ScoreView(bx, s.meas, 'all'); };
 });
+document.addEventListener('score-ready', () => { SECS.forEach(s => { if (s.score) { const bx = s.card.querySelector('.scorebox'); s.score = ScoreView(bx, s.meas, 'all'); } }); if (fScore) fScore = ScoreView($('fScore'), FULL.meas, 'current'); });
 const secById = id => SECS.find(x => x.id === id);
 const secName = id => id === '0' ? 'Introdução' : 'Trecho ' + id;
 KEYS.forEach((m, i) => {
@@ -315,6 +402,7 @@ $('cRec').onclick = async () => {
   recording = true; recSec = s; recHint = null; recLine = -1; $('cRec').disabled = true;
   $('cMsg').textContent = 'Espere os 4 cliques e cante junto.';
   $('cStage').hidden = false; $('cNow').innerHTML = ''; $('cNext').innerHTML = '';
+  s._recScore = null; if (Score.has() && s.meas && Score.pdf) { $('cScore').hidden = false; s._recScore = ScoreView($('cScore'), s.meas, 'current'); } else $('cScore').hidden = true;
   Mic.rec = []; recStartT = performance.now();
   A.main.addEventListener('playing', () => { if (recording && recHint == null) recHint = (performance.now() - recStartT) / 1000; }, { once: true });
   playMain(s.a[bpm], 0, 'rec', () => setTimeout(() => stopRec(true), 700));
@@ -330,7 +418,7 @@ $('cRec').onclick = async () => {
       if (lines[li + 1]) $('cNext').appendChild(drawLine(lines[li + 1], s.rg, { onTap: () => false }).ln);
       fit($('cStage'));
     }
-    if (s._recEls) karaoke(s._recEls, beat);
+    if (s._recEls) karaoke(s._recEls, beat); if (s._recScore) s._recScore.highlight(beat);
     recRaf = requestAnimationFrame(tick);
   })();
 };
@@ -410,6 +498,8 @@ $('cAgain').onclick = () => { $('cOut').hidden = true; $('cRec').click(); };
 
 /* ================= ENSAIO ================= */
 const fp = $('fPlay'); fp.innerHTML = PLAY; let fOn = false, fRaf = 0, fLineIdx = -1;
+let fScore = null;
+if (Score.has() && FULL.meas) { $('fScoreP').hidden = false; $('fScoreB').onclick = () => { const b = $('fScore'); b.hidden = !b.hidden; $('fScoreB').textContent = b.hidden ? '📄 Ver partitura' : '📄 Esconder partitura'; if (!b.hidden && !fScore) { fScore = ScoreView(b, FULL.meas, 'current'); fScore.ready.then(() => fScore.highlight(0)); } }; }
 const FL = FULL.lines.map(l => ({ ...l, rg: rangeOf([l.ev]) }));
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function stopFull() { if (!fOn) return; fOn = false; if (A.owner === 'full') stopMain(); fp.innerHTML = PLAY; cancelAnimationFrame(fRaf); $('fCount').querySelectorAll('i').forEach(d => d.classList.remove('hit')); }
@@ -436,7 +526,7 @@ function tickFull() {
   $('fProg').style.width = Math.min(100, Math.max(0, beat / FULL.len * 100)) + '%';
   let li = FL.findIndex(L => { const l = L.ev[L.ev.length - 1]; return beat < l.b + l.d; }); if (li < 0) li = FL.length - 1;
   if (li !== fLineIdx) { fLineIdx = li; renderStage(li); }
-  if (FL[li].els) karaoke(FL[li].els, beat);
+  if (FL[li].els) karaoke(FL[li].els, beat); if (fScore && !$('fScore').hidden) fScore.highlight(beat);
   let bi = FULL.blocks.findIndex(b => beat < b.end); if (bi < 0) bi = FULL.blocks.length - 1;
   FULL.blocks.forEach((b, i) => { b.li.classList.toggle('now', i === bi && beat >= -0.5); b.li.classList.toggle('past', i < bi); });
   $('fLbl').textContent = beat < 0 ? 'Contando… 1, 2, 3, 4' : FULL.blocks[bi].label;
@@ -638,6 +728,7 @@ function renderSongs() {
     const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = x.title + (PACK && x.id === PACK.id ? ' · aberta' : '');
     const row = document.createElement('div'); row.className = 'row';
     if (!PACK || x.id !== PACK.id) { const o = document.createElement('button'); o.className = 'btn'; o.textContent = 'Abrir'; o.onclick = () => { try { localStorage.setItem('coral-cur', x.id); } catch (e) {} location.reload(); }; row.appendChild(o); }
+    if (PACK && x.id === PACK.id && Score.has()) { const pb = document.createElement('label'); pb.className = 'file btn'; pb.innerHTML = '<input type="file" accept="application/pdf,.pdf">📄 Partitura'; pb.querySelector('input').onchange = async ev => { const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; try { await Score.importFile(f); nm.textContent = x.title + ' · aberta · partitura ✓'; } catch (e) { nm.textContent = x.title + ' · esse PDF não confere'; } }; row.appendChild(pb); SongDB.getPdf(x.id).then(r => { if (r) nm.textContent = x.title + ' · aberta · partitura ✓'; }).catch(() => {}); }
     const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Remover';
     del.onclick = () => { if (del.dataset.ok) { SongDB.del(x.id).then(() => location.reload()); } else { del.dataset.ok = 1; del.textContent = 'Toque de novo para remover'; } };
     row.appendChild(del); li.append(nm, row); ul.appendChild(li);

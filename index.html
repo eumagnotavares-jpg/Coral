@@ -192,6 +192,12 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
 .save{font-size:13px;color:var(--muted)}
 .foot{color:var(--muted);font-size:13px;text-align:center}
 .lyred{display:grid;gap:8px}
+.scorebox,.scorehold,#fScore,#cScore{display:grid;gap:8px}
+.scorerow{background:#fff;border:1px solid var(--line);border-radius:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.scoreinner{position:relative}
+.scorerow canvas{display:block;width:100%;height:auto}
+.mbox{position:absolute;top:0;bottom:0;border:3px solid transparent;border-radius:6px;box-sizing:border-box;transition:background .1s}
+.mbox.on{border-color:#C8102E;background:rgba(200,16,46,.10)}
 @media (max-width:420px){.tiles b{font-size:22px}}
 @media (prefers-reduced-motion:reduce){.syl .t,.orb,.key,.meter .needle{transition:none}.recdot{animation:none}}
 </style>
@@ -304,6 +310,7 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
       <div class="lbl"><span class="recdot"></span><span id="cLbl">Gravando</span></div>
       <div class="lines big" id="cNow"></div>
       <div class="lines nx" id="cNext"></div>
+      <div id="cScore" hidden></div>
       <div class="prog"><i id="cProg"></i></div>
       <div class="row"><button class="btn" id="cStop">■ Parar e analisar</button></div>
     </div>
@@ -340,6 +347,8 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
       <div class="lbl" id="fLbl">Aperte o play</div>
       <div class="lines big" id="fNow"></div>
       <div class="lines nx" id="fNext"></div>
+      <div class="row" id="fScoreP" hidden><button class="btn" id="fScoreB">📄 Ver partitura</button></div>
+      <div id="fScore" hidden></div>
     </div>
     <div class="panel">
       <h2>Mapa da música</h2>
