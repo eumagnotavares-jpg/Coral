@@ -789,7 +789,13 @@ function renderSongs() {
 async function importSongs(files, msgEl) {
   const ok = [], bad = [];
   for (const f of files) {
-    try { const j = JSON.parse(await f.text()); if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw 0; await SongDB.put(j); ok.push(j); }
+    try { const j = JSON.parse(await f.text());
+      if (j.app === 'coral-bundle' && Array.isArray(j.songs)) {
+        for (const sg of j.songs) { if (sg.app === 'coral-song' && sg.id) { await SongDB.put(sg); ok.push(sg); } }
+        for (const [id, b64] of Object.entries(j.pdfs || {})) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); await SongDB.putPdf({ id, blob: new Blob([u], { type: 'application/pdf' }) }); }
+        continue;
+      }
+      if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw 0; await SongDB.put(j); ok.push(j); }
     catch (e) { bad.push(f.name); }
   }
   if (ok.length) { try { if (!PACK) localStorage.setItem('coral-cur', ok[0].id); } catch (e) {} }
