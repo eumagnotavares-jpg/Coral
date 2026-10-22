@@ -147,12 +147,15 @@ function fit(root) { (root || document).querySelectorAll('.ln').forEach(l => { l
 function karaoke(els, beat) { let cur = null; els.forEach(({ e, el }) => { const on = beat >= e.b && beat < e.b + e.d; el.classList.toggle('cur', on); el.classList.toggle('done', beat >= e.b + e.d); if (on) cur = el; }); return cur; }
 
 /* ================= Abas ================= */
-const VIEWS = ['hoje','treinar','afinador','corrigir','ensaio','aquecer','alcance','diario'];
+const VIEWS = ['hoje','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
 let view = 'hoje';
 function show(v) {
   if (!VIEWS.includes(v)) v = 'hoje';
   if (view === 'afinador' && v !== 'afinador') tunerOff();
   if (view === 'alcance' && v !== 'alcance') rMicOff();
+  if (view === 'eco' && v !== 'eco') ecoStop();
+  if (view === 'jogo' && v !== 'jogo') gameStop();
+  if (['treinar', 'afinador', 'aquecer', 'alcance'].includes(v)) document.body.classList.add('adv');
   view = v;
   document.querySelectorAll('.tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.v === v); if (b.dataset.v === v) b.scrollIntoView({ inline: 'center', block: 'nearest' }); });
   VIEWS.forEach(x => $('v-' + x).hidden = x !== v);
@@ -161,7 +164,7 @@ function show(v) {
   window.scrollTo(0, 0);
   requestAnimationFrame(() => fit());
 }
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => show(b.dataset.v));
+document.querySelectorAll('.tabs button[data-v]').forEach(b => b.onclick = () => show(b.dataset.v));
 
 function setBpm(v) {
   stopAll(); bpm = v;
@@ -476,7 +479,18 @@ function showResult() {
     if (R.measured) sum += Math.abs(R.meanMs) >= 60 ? 'Na média você entrou ' + (R.meanMs > 0 ? 'atrasado' : 'adiantado') + ' ' + (Math.abs(R.meanMs) / 1000).toFixed(2).replace('.', ',') + ' s. ' : 'Na média você entrou no tempo. ';
     sum += 'Tolerância: ' + (R.tolMs / 1000).toFixed(2).replace('.', ',') + ' s. Um atraso constante (fone Bluetooth, por exemplo) já é descontado.';
   }
-  $('cSum').textContent = sum;
+  if (simple() && gView === 'pitch') {
+    // por frase: acha a mais difícil
+    let k = 0, worst = null; const ls = s.lines.map((line, li) => { let bad = 0, low = 0, high = 0, ok = 0; line.forEach(() => { const p = g.per[k++]; if (p.status === 'high') { bad++; high++; } else if (p.status === 'low') { bad++; low++; } else if (p.status === 'ok') ok++; }); return { li, bad, low, high, ok, n: line.length }; });
+    ls.forEach(x => { if (x.bad && (!worst || x.bad / x.n > worst.bad / worst.n)) worst = x; });
+    const pct = g.heard ? Math.round(g.good / g.heard * 100) : 0;
+    sum = (pct >= 80 ? 'Muito bem! ' : pct >= 50 ? 'Bom caminho! ' : 'Vamos com calma. ') + g.good + ' de ' + g.heard + ' notas saíram afinadas. ';
+    if (g.oct > 0) sum += 'Você cantou mais agudo que o tenor (uma “oitava” acima): pergunte ao professor se está certo. ';
+    if (worst) sum += 'A frase ' + (worst.li + 1) + ' foi a mais difícil: ficou ' + (worst.low >= worst.high ? 'um pouco grave (baixa). Pense em “subir” a voz.' : 'um pouco aguda (alta). Pense em “descer” a voz.');
+    else sum += 'Nenhuma frase ficou muito fora. Ótimo!';
+    $('cSum').textContent = sum;
+    if (worst) { const b = document.createElement('button'); b.className = 'btn pri'; b.style.marginTop = '8px'; b.textContent = '🔁 Treinar a frase ' + (worst.li + 1) + ' no modo eco'; b.onclick = () => { ecoOpen(s.id, worst.li); }; $('cSum').appendChild(document.createElement('br')); $('cSum').appendChild(b); }
+  } else $('cSum').textContent = sum;
   $('cLeg').innerHTML = LEG[gView].map(([v, t]) => '<span><i style="background:var(' + v + ')"></i>' + t + '</span>').join('');
   const box = $('cLines'); box.innerHTML = ''; let i = 0, prev = null;
   s.lines.forEach(line => { const r = drawLine(line, s.rg, { prev }); prev = r.prev; r.els.forEach(o => o.k = i++); box.appendChild(r.ln);
@@ -504,7 +518,23 @@ const FL = FULL.lines.map(l => ({ ...l, rg: rangeOf([l.ev]) }));
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function stopFull() { if (!fOn) return; fOn = false; if (A.owner === 'full') stopMain(); fp.innerHTML = PLAY; cancelAnimationFrame(fRaf); $('fCount').querySelectorAll('i').forEach(d => d.classList.remove('hit')); }
 stoppers.add(stopFull);
-function startFull(beat) { stopAll(); fOn = true; playMain(FULL.a[bpm], beat == null ? 0 : Math.max(0, (4 + beat) * 60 / bpm), 'full', () => { stopFull(); Day.mark('ensaio'); }); fp.innerHTML = PAUSE; fLineIdx = -1; tickFull(); }
+const PROF = PACK && PACK.prof && PACK.prof.map && PACK.prof.map.length ? PACK.prof : null;
+let fSrc = PROF ? 'prof' : 'piano';
+const PT_ = PROF ? PROF.map.map(x => x[0]) : [], PB_ = PROF ? PROF.map.map(x => x[1]) : [];
+function interp(x, xs, ys) { if (!xs.length) return 0; if (x <= xs[0]) return ys[0] - (xs[0] - x) * 2; if (x >= xs[xs.length - 1]) return ys[ys.length - 1] + (x - xs[xs.length - 1]) * 2; let lo = 0, hi = xs.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (xs[m] <= x) lo = m; else hi = m; } const f = (x - xs[lo]) / ((xs[hi] - xs[lo]) || 1); return ys[lo] + f * (ys[hi] - ys[lo]); }
+const profBeat = t => interp(t, PT_, PB_), profTime = b => Math.max(0, interp(b, PB_, PT_));
+function fBeatNow() { return fSrc === 'prof' ? profBeat(A.main.currentTime) : A.main.currentTime / (60 / bpm) - 4; }
+function startFull(beat) {
+  stopAll(); fOn = true;
+  if (fSrc === 'prof') playMain(PROF.a, beat == null ? 0 : Math.max(0, profTime(beat) - 1), 'full', () => { stopFull(); Day.mark('ensaio'); });
+  else playMain(FULL.a[bpm], beat == null ? 0 : Math.max(0, (4 + beat) * 60 / bpm), 'full', () => { stopFull(); Day.mark('ensaio'); });
+  fp.innerHTML = PAUSE; fLineIdx = -1; tickFull();
+}
+if (PROF) {
+  $('fSrcRow').hidden = false; $('fSrcNote').hidden = false;
+  const setSrc = v => { stopFull(); fSrc = v; $('fProf').setAttribute('aria-pressed', v === 'prof'); $('fPiano').setAttribute('aria-pressed', v === 'piano'); $('fSrcNote').hidden = v !== 'prof'; refreshMapTimes(); };
+  $('fProf').onclick = () => setSrc('prof'); $('fPiano').onclick = () => setSrc('piano');
+}
 fp.onclick = () => fOn ? stopFull() : startFull(null);
 FULL.blocks.forEach(b => {
   const li = document.createElement('li'); li.innerHTML = '<span class="k"></span><span><b></b><small></small></span><span class="tm"></span>';
@@ -512,7 +542,7 @@ FULL.blocks.forEach(b => {
   li.querySelector('b').textContent = b.label; li.querySelector('small').textContent = b.sub || '';
   li.onclick = () => startFull(b.start - 1); b.li = li; $('map').appendChild(li);
 });
-function refreshMapTimes() { FULL.blocks.forEach(b => b.li.querySelector('.tm').textContent = fmt((4 + b.start) * 60 / bpm)); }
+function refreshMapTimes() { FULL.blocks.forEach(b => b.li.querySelector('.tm').textContent = fmt(typeof fSrc !== 'undefined' && fSrc === 'prof' ? profTime(b.start) : (4 + b.start) * 60 / bpm)); }
 refreshMapTimes();
 function renderStage(i) {
   $('fNow').innerHTML = ''; $('fNext').innerHTML = ''; if (i < 0) return;
@@ -521,7 +551,7 @@ function renderStage(i) {
   fit($('fNow').parentElement);
 }
 function tickFull() {
-  if (!fOn) return; const beat = A.main.currentTime / (60 / bpm) - 4;
+  if (!fOn) return; const beat = fBeatNow();
   $('fCount').querySelectorAll('i').forEach((d, i) => d.classList.toggle('hit', beat < 0 && i <= Math.floor(beat + 4)));
   $('fProg').style.width = Math.min(100, Math.max(0, beat / FULL.len * 100)) + '%';
   let li = FL.findIndex(L => { const l = L.ev[L.ev.length - 1]; return beat < l.b + l.d; }); if (li < 0) li = FL.length - 1;
@@ -529,7 +559,7 @@ function tickFull() {
   if (FL[li].els) karaoke(FL[li].els, beat); if (fScore && !$('fScore').hidden) fScore.highlight(beat);
   let bi = FULL.blocks.findIndex(b => beat < b.end); if (bi < 0) bi = FULL.blocks.length - 1;
   FULL.blocks.forEach((b, i) => { b.li.classList.toggle('now', i === bi && beat >= -0.5); b.li.classList.toggle('past', i < bi); });
-  $('fLbl').textContent = beat < 0 ? 'Contando… 1, 2, 3, 4' : FULL.blocks[bi].label;
+  $('fLbl').textContent = beat < 0 ? (fSrc === 'prof' ? 'Introdução do áudio… prepare-se' : 'Contando… 1, 2, 3, 4') : FULL.blocks[bi].label;
   fRaf = requestAnimationFrame(tickFull);
 }
 
@@ -680,23 +710,24 @@ function dayIndex() { return Math.floor(Date.now() / 864e5); }
 function dayTrecho() { const nf = ORDER.find(id => Store.d.status[id] !== 'firme'); return nf || ORDER[dayIndex() % ORDER.length]; }
 function dayWarm() { const opts = ['brrr', 'mi', 'longa']; return WARM.find(w => w.id === opts[dayIndex() % 3]); }
 function goTo(v, el) { show(v); if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }), 60); }
+let DAYSTEPS = [];
 function renderDay() {
   const d = Day.get(), tid = PACK ? dayTrecho() : null, s = tid ? secById(tid) : null, w2 = dayWarm(), hum = WARM.find(w => w.id === 'hum');
   const firm = SECS.filter(x => Store.d.status[x.id] === 'firme').length;
   const dt = new Date(); $('dayTitle').textContent = 'Treino de hoje · ' + dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const lesson = LESSONS[dayIndex() % LESSONS.length];
   const all = [
-    { k: 'resp', t: 'Respiração · 1 min', p: '4 ciclos guiados: inspira, segura, solta “sss”.', go: 'Começar', fn: () => { goTo('aquecer', $('breathCard')); startBreath(); } },
-    { k: 'w:hum', t: 'Aquecimento · ' + hum.t, p: 'Boca fechada, som leve, sem força.', go: 'Tocar', fn: () => { goTo('aquecer', hum.card); startWarm(hum); } },
-    { k: 'w:' + w2.id, t: 'Aquecimento · ' + w2.t, p: w2.how, go: 'Tocar', fn: () => { goTo('aquecer', w2.card); startWarm(w2); } },
-    { k: 'ouvir', t: 'Ouça o ' + secName(tid) + ' duas vezes', p: (s ? '“' + s.t + '”. ' : '') + 'Acompanhe a letra acendendo e cante baixinho junto.' + (d.listen ? ' Ouvido ' + Math.min(d.listen, 2) + ' de 2.' : ''), go: 'Tocar trecho', fn: () => { goTo('treinar', s.card); startSec(s, null); } },
-    { k: 'corrigir', t: 'Cante e corrija o ' + secName(tid), p: 'De fone. O app grava e mostra afinação e ritmo de cada sílaba.', go: 'Abrir correção', fn: () => { $('cSec').value = tid; goTo('corrigir'); } },
-    firm >= 2
-      ? { k: 'ensaio', t: 'Ensaio completo', p: 'A música inteira, na ordem do coral.', go: 'Tocar ensaio', fn: () => { goTo('ensaio'); startFull(null); } }
-      : { k: 'afinar', t: 'Afinador · 3 notas do trecho', p: 'Escolha como alvo as notas que ficaram vermelhas ou azuis e segure até “Na nota ✓”.', go: 'Abrir afinador', fn: () => goTo('afinador') },
-    { k: 'registrar', t: 'Registrar o treino', p: d.start ? 'Tempo de hoje: cerca de ' + Math.max(1, Math.round((Date.now() - d.start) / 60000)) + ' min.' : 'Salva o tempo de hoje no Diário.', go: 'Registrar', fn: () => { const min = d.start ? Math.max(5, Math.round((Date.now() - d.start) / 60000)) : 15; addLog(min, 'Treino do dia' + (tid ? ' · ' + secName(tid) : '')); Day.mark('registrar'); } }
+    { k: 'resp', t: 'Respirar · 1 min', p: 'O app conta com você: puxe o ar, segure e solte devagar fazendo “sss”.', go: 'Começar', fn: () => { goTo('aquecer', $('breathCard')); startBreath(); } },
+    { k: 'w:hum', t: 'Aquecer a voz · 1 min', p: 'Boca fechada, faça “hum” seguindo o som, como uma sirene suave. Sem força.', go: 'Tocar', fn: () => { goTo('aquecer', hum.card); startWarm(hum); } },
+    { k: 'jogo', t: 'Jogo: acerte 10 notas', p: 'O app toca uma nota e você canta igual até a tela ficar verde.', go: 'Jogar', fn: () => { goTo('jogo'); gameStart(); } },
+    { k: 'eco', t: 'Cantar frase por frase' + (s ? ' · ' + s.t : ''), p: 'O app canta uma frase curta; depois é a sua vez de repetir. Faça pelo menos 3 frases.', go: 'Abrir', fn: () => ecoOpen(tid, 0) },
+    { k: 'ensaio', t: PROF ? 'Cantar junto com o professor' : 'Cantar a música inteira', p: PROF ? 'O áudio do professor toca e a letra vai acendendo. Cante junto, sem medo de errar.' : 'A música inteira, na ordem do coral.', go: 'Tocar', fn: () => { goTo('ensaio'); startFull(null); } },
+    { k: 'corrigir', t: 'Gravar e ver como foi (opcional)', p: 'De fone. O app grava sua voz e diz, em uma frase, onde melhorar.', go: 'Abrir', fn: () => { $('cSec').value = tid; goTo('corrigir'); } },
+    { k: 'aula', t: 'Mini-aula: ' + lesson.t, p: 'Um minuto para entender um conceito, com exemplo para ouvir.', go: 'Abrir', fn: () => { goTo('aulas', $('lesson-' + lesson.id)); Day.mark('aula'); } },
+    { k: 'registrar', t: 'Registrar o treino', p: d.start ? 'Tempo de hoje: cerca de ' + Math.max(1, Math.round((Date.now() - d.start) / 60000)) + ' min.' : 'Salva o treino de hoje no Diário.', go: 'Registrar', fn: () => { const min = d.start ? Math.max(5, Math.round((Date.now() - d.start) / 60000)) : 15; addLog(min, 'Treino do dia' + (PACK ? ' · ' + PACK.title + (tid ? ' · ' + secName(tid) : '') : '')); Day.mark('registrar'); } }
   ];
-  const steps = PACK ? all : all.filter(x => ['resp', 'w:hum', 'w:' + w2.id, 'registrar'].includes(x.k)).concat([]).sort((a, b) => (a.k === 'registrar') - (b.k === 'registrar'));
-  if (!PACK) steps.splice(steps.length - 1, 0, { k: 'afinar', t: 'Afinador · segure 3 notas', p: 'Escolha uma nota alvo, ouça e segure até “Na nota ✓”.', go: 'Abrir afinador', fn: () => goTo('afinador') });
+  const steps = PACK ? all : all.filter(x => ['resp', 'w:hum', 'jogo', 'aula', 'registrar'].includes(x.k));
+  DAYSTEPS = steps;
   const ol = $('daySteps'); ol.innerHTML = ''; const next = steps.find(x => !d.done.includes(x.k));
   steps.forEach((st, i) => {
     const done = d.done.includes(st.k), li = document.createElement('li'); li.className = 'step' + (done ? ' done' : '') + (st === next ? ' next' : '');
@@ -707,7 +738,8 @@ function renderDay() {
     const m = document.createElement('button'); m.className = 'btn'; m.textContent = done ? 'Desfazer' : 'Marcar feito'; m.onclick = () => done ? Day.unmark(st.k) : (Day.begin(), Day.mark(st.k)); row.appendChild(m);
     ol.appendChild(li);
   });
-  $('dayLead').textContent = next ? 'Uns 15 minutos. Siga na ordem; use fone de ouvido.' + (tid ? ' Trecho do dia: ' + secName(tid) + '.' : ' Importe sua música para treinar os trechos.') : 'Treino de hoje completo. Até amanhã às 21h!';
+  $('dayLead').textContent = next ? 'Toque em “Começar o treino de hoje” e siga os passos. Use fone de ouvido.' : 'Treino de hoje completo. Até amanhã às 21h!';
+  renderToday(); Sess.paint();
 }
 
 /* ================= MÚSICAS (arquivo importado) ================= */
@@ -738,14 +770,189 @@ function renderSongs() {
 $('songName').textContent = PACK ? PACK.title : 'sem música';
 $('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. ' + (PACK.guide ? PACK.guide + ' ' : '') + 'O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
 $('noSong').hidden = !!PACK;
-if (!PACK) ['treinar', 'corrigir', 'ensaio'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
+if (!PACK) ['treinar', 'corrigir', 'ensaio', 'eco'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
 renderSongs();
+
+
+/* ================= PREFERÊNCIAS / MODO SIMPLES ================= */
+Store.d.prefs = Object.assign({ tech: false, adv: false }, Store.d.prefs || {});
+function simple() { return !Store.d.prefs.tech; }
+function applyPrefs() { document.body.classList.toggle('simple', simple()); document.body.classList.toggle('adv', !!Store.d.prefs.adv); $('prefTech').checked = !!Store.d.prefs.tech; $('prefAdv').checked = !!Store.d.prefs.adv; }
+$('prefTech').onchange = e => { Store.d.prefs.tech = e.target.checked; Store.save(); applyPrefs(); };
+$('prefAdv').onchange = e => { Store.d.prefs.adv = e.target.checked; Store.save(); applyPrefs(); };
+$('moreTab').onclick = () => { const on = !document.body.classList.contains('adv'); document.body.classList.toggle('adv', on); $('moreTab').textContent = on ? '‹ Menos' : 'Mais ›'; $('moreTab').setAttribute('aria-expanded', on); };
+applyPrefs();
+
+/* ================= MÚSICA DO DIA ================= */
+function todaySong() { if (!SONGS.length) return null; const l = [...SONGS].sort((a, b) => a.title.localeCompare(b.title)); return l[dayIndex() % l.length]; }
+function openSong(id) { try { localStorage.setItem('coral-cur', id); } catch (e) {} location.hash = '#hoje'; location.reload(); }
+function renderToday() {
+  const t = todaySong(), box = $('todaySwitch'); box.innerHTML = '';
+  if (!t) { $('todaySong').textContent = 'Importe uma música para começar. Enquanto isso, dá para respirar, aquecer e jogar.'; return; }
+  $('todaySong').innerHTML = ''; const b = document.createElement('b'); b.textContent = t.title;
+  $('todaySong').append('Música de hoje: ', b, PACK && PACK.id === t.id ? '' : ' (você está com ' + (PACK ? PACK.title : 'nenhuma') + ' aberta)');
+  if (!PACK || PACK.id !== t.id) { const o = document.createElement('button'); o.className = 'btn pri'; o.textContent = 'Abrir ' + t.title; o.onclick = () => openSong(t.id); box.appendChild(o); }
+  if (SONGS.length > 1) { const sel = document.createElement('select'); sel.setAttribute('aria-label', 'Trocar de música'); sel.innerHTML = '<option value="">Trocar de música…</option>'; SONGS.forEach(x => { const op = document.createElement('option'); op.value = x.id; op.textContent = x.title; sel.appendChild(op); }); sel.onchange = () => sel.value && openSong(sel.value); box.appendChild(sel); }
+}
+
+/* ================= TREINO GUIADO (barra de passos) ================= */
+const Sess = {
+  on: false,
+  idx() { const d = Day.get(); const i = DAYSTEPS.findIndex(x => !d.done.includes(x.k)); return i; },
+  start() { this.on = true; Day.begin(); document.body.classList.add('insess'); this.paint(); const i = this.idx(); if (i >= 0) DAYSTEPS[i].fn(); },
+  end() { this.on = false; document.body.classList.remove('insess'); $('sessBar').hidden = true; },
+  paint() {
+    if (!this.on) { $('sessBar').hidden = true; return; }
+    const i = this.idx(); $('sessBar').hidden = false;
+    if (i < 0) { $('sessStep').textContent = 'Treino de hoje completo! 🎉'; $('sessTip').textContent = 'Até amanhã. Se quiser, continue praticando à vontade.'; $('sessDo').hidden = true; $('sessNext').textContent = 'Fechar'; return; }
+    const st = DAYSTEPS[i]; $('sessDo').hidden = false; $('sessNext').textContent = 'Próximo ›';
+    $('sessStep').textContent = 'Passo ' + (i + 1) + ' de ' + DAYSTEPS.length + ': ' + st.t; $('sessTip').textContent = st.p; $('sessDo').textContent = st.go;
+  }
+};
+$('startDay').onclick = () => Sess.start();
+$('sessDo').onclick = () => { const i = Sess.idx(); if (i >= 0) DAYSTEPS[i].fn(); };
+$('sessNext').onclick = () => { const i = Sess.idx(); if (i < 0) { Sess.end(); show('hoje'); return; } Day.mark(DAYSTEPS[i].k); renderDay(); const j = Sess.idx(); if (j >= 0) DAYSTEPS[j].fn(); else show('hoje'); };
+$('sessEnd').onclick = () => Sess.end();
+
+/* ================= ECO: FRASE POR FRASE ================= */
+const E = { sec: null, li: 0, speed: 'slow', reps: 2, run: 0, raf: 0, score: null, done: 0 };
+function ecoRate() { return E.speed === 'slow' ? 0.8 : 1; }
+function ecoBpm() { return E.speed === 'fast' ? 80 : 60; }
+function ecoStop() { E.run++; cancelAnimationFrame(E.raf); if (A.owner === 'eco') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} if (Mic.rec && !recording) Mic.rec = null; $('eGo').disabled = false; $('eGo').textContent = '▶ Ouvir a frase'; $('eSay').classList.remove('you'); }
+stoppers.add(ecoStop);
+function ecoRender() {
+  const s = E.sec; if (!s) return; const line = s.lines[E.li];
+  $('eLine').innerHTML = ''; const r = drawLine(line, s.rg, { big: true }); $('eLine').appendChild(r.ln); E.els = r.els; fit($('eLine').parentElement);
+  $('eNum').textContent = 'Frase ' + (E.li + 1) + ' de ' + s.lines.length; $('eLbl').textContent = s.t; $('eSay').innerHTML = '&nbsp;'; $('eRes').textContent = '';
+  $('ePrev').disabled = E.li === 0; $('eNext').disabled = E.li >= s.lines.length - 1;
+  if (Score.has() && s.meas) { E.score = ScoreView($('eScore'), s.meas, 'current'); E.score.ready.then(() => E.score.highlight(line[0].b + 0.01)); } else { $('eScore').innerHTML = ''; E.score = null; }
+}
+function ecoOpen(id, li) {
+  if (!PACK) { show('hoje'); return; }
+  E.sec = secById(id) || SECS[0]; E.li = Math.max(0, Math.min(li || 0, E.sec.lines.length - 1));
+  $('eSecs').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === E.sec.id));
+  show('eco'); ecoRender();
+}
+SECS.forEach(s0 => { const b = document.createElement('button'); b.textContent = s0.id === '0' ? 'Introdução' : s0.t; b.dataset.id = s0.id; b.setAttribute('aria-pressed', 'false'); b.onclick = () => { ecoStop(); ecoOpen(s0.id, 0); }; $('eSecs').appendChild(b); });
+[['eSlow', 'slow'], ['eMid', 'mid'], ['eFast', 'fast']].forEach(([id, v]) => $(id).onclick = () => { ecoStop(); E.speed = v; ['eSlow', 'eMid', 'eFast'].forEach(x => $(x).setAttribute('aria-pressed', x === id)); });
+document.querySelectorAll('#v-eco [data-r]').forEach(b => b.onclick = () => { E.reps = +b.dataset.r; document.querySelectorAll('#v-eco [data-r]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
+$('ePrev').onclick = () => { ecoStop(); E.li = Math.max(0, E.li - 1); ecoRender(); };
+$('eNext').onclick = () => { ecoStop(); E.li = Math.min(E.sec.lines.length - 1, E.li + 1); E.done++; if (E.done >= 3) Day.mark('eco'); ecoRender(); };
+$('eMic').onchange = async e => { if (e.target.checked) { try { await Mic.start(); } catch (err) { e.target.checked = false; $('eRes').textContent = micError(err); } } else if (!tTimer && !rTimer && !recording) Mic.stop(); };
+$('eGo').onclick = () => { if (!E.sec) return; if ($('eGo').textContent.startsWith('■')) { ecoStop(); return; } ecoCycle(); };
+async function ecoCycle() {
+  stopAll(); const my = ++E.run, s = E.sec, line = s.lines[E.li], bp = ecoBpm(), rate = ecoRate(), spb = 60 / bp / rate;
+  const b0 = line[0].b - 0.5, last = line[line.length - 1], b1 = last.b + last.d + 0.25;
+  $('eGo').textContent = '■ Parar'; $('eRes').textContent = ''; let results = [];
+  for (let r = 0; r < E.reps; r++) {
+    if (my !== E.run) return;
+    // 1) ouvir
+    $('eSay').textContent = 'Ouça…'; $('eSay').classList.remove('you');
+    await new Promise(res => {
+      playMain(s.a[bp], (4 + b0) * (60 / bp), 'eco', res);
+      try { A.main.playbackRate = rate; A.main.preservesPitch = true; A.main.webkitPreservesPitch = true; } catch (e) {}
+      const t = () => { if (my !== E.run) return res(); const beat = A.main.currentTime / (60 / bp) - 4; karaoke(E.els, beat); if (E.score) E.score.highlight(beat); if (beat >= b1) { A.main.pause(); return res(); } E.raf = requestAnimationFrame(t); }; t();
+    });
+    if (my !== E.run) return;
+    // 2) sua vez (mesmo tempo, em silêncio)
+    E.els.forEach(({ el }) => el.classList.remove('cur', 'done'));
+    $('eSay').textContent = 'Sua vez! Cante agora 🎤'; $('eSay').classList.add('you');
+    const useMic = $('eMic').checked && Mic.on, t0 = performance.now();
+    if (useMic) Mic.rec = [];
+    await new Promise(res => {
+      const t = () => { if (my !== E.run) return res(); const beat = b0 + (performance.now() - t0) / 1000 / spb; karaoke(E.els, beat); if (E.score) E.score.highlight(beat); if (beat >= b1 + 0.3) return res(); E.raf = requestAnimationFrame(t); }; t();
+    });
+    if (useMic && my === E.run) {
+      const chunks = Mic.rec || []; Mic.rec = null;
+      try {
+        const x = await AN.pcmToMono16k(chunks, Mic.ctx.sampleRate), tr = await AN.track(x);
+        const notes = line.map(e => ({ m: e.m - 12, b: e.b - b0, d: e.d }));
+        const g = AN.grade(tr, notes, spb, -4 * spb); results.push(g);
+        E.els.forEach((o, i) => { o.el.classList.remove('g-ok', 'g-near', 'g-high', 'g-low', 'g-none'); o.el.classList.add('g-' + g.per[i].status); });
+        const low = g.per.filter(p => p.status === 'low').length, high = g.per.filter(p => p.status === 'high').length;
+        $('eRes').textContent = g.heard < notes.length * 0.3 ? 'Não ouvi bem sua voz. Cante um pouco mais forte ou mais perto do microfone.' : 'Acertou ' + g.good + ' de ' + g.total + ' notas.' + (low > high && low ? ' Algumas ficaram graves: pense em “subir”.' : high > low && high ? ' Algumas ficaram agudas: pense em “descer”.' : g.good === g.total ? ' Perfeito! 👏' : '');
+      } catch (e) { $('eRes').textContent = 'Não consegui analisar desta vez.'; }
+      await new Promise(r2 => setTimeout(r2, 900));
+    } else await new Promise(r2 => setTimeout(r2, 500));
+    E.els.forEach(({ el }) => el.classList.remove('cur', 'done'));
+  }
+  if (my !== E.run) return;
+  $('eSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; $('eSay').classList.remove('you');
+  $('eGo').textContent = '↺ Ouvir de novo'; try { A.main.playbackRate = 1; } catch (e) {}
+}
+
+/* ================= JOGO: ACERTE A NOTA ================= */
+const G = { on: false, n: 0, ok: 0, target: null, prev: null, hold: 0, t0: 0, timer: 0, guard: 0 };
+function gameStop() { G.on = false; clearInterval(G.timer); G.timer = 0; if (!tTimer && !rTimer && !recording && !$('eMic').checked) Mic.stop(); $('gStart').textContent = '▶ Começar'; $('gStart').disabled = false; $('gAgain').disabled = true; $('gSkip').disabled = true; $('v-jogo').querySelector('.gamebox').classList.remove('hit'); }
+function gRange() { const a = Store.d.alcance || {}; let lo = a.lo != null ? Math.max(45, a.lo) : 47, hi = a.hi != null ? Math.min(62, a.hi - 1) : 57; if (hi - lo < 5) { lo = 47; hi = 57; } return [lo, hi]; }
+function gNext() {
+  if (!G.on) return;
+  if (G.n >= 10) return gFinish();
+  const [lo, hi] = gRange(); let t;
+  do { t = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (G.prev != null && (t === G.prev || Math.abs(t - G.prev) > 5));
+  G.target = t; G.prev = t; G.hold = 0; G.t0 = performance.now(); G.n++;
+  $('gScore').textContent = 'Nota ' + G.n + ' de 10 · acertos: ' + G.ok;
+  $('gBig').textContent = '🎵'; $('gSay').textContent = 'Ouça a nota…'; $('gHold').style.width = '0%'; $('v-jogo').querySelector('.gamebox').classList.remove('hit');
+  noteNow(t + 12); G.guard = performance.now() + 1700;
+}
+function gTick() {
+  if (!G.on || G.target == null) return;
+  const now = performance.now(); if (now < G.guard) return;
+  if (now - G.t0 > 16000) { $('gSay').textContent = 'Tudo bem, vamos para a próxima.'; G.target = null; setTimeout(gNext, 1200); return; }
+  const m = Mic.pitch();
+  if (m !== m) { $('gBig').textContent = '🎤'; $('gSay').textContent = 'Agora cante “ô”…'; G.hold = Math.max(0, G.hold - 1); }
+  else {
+    let d = m - G.target; const oct = Math.round(d / 12); d = d - 12 * oct;
+    if (Math.abs(d) <= 0.45) { G.hold++; $('gBig').textContent = '✓'; $('gSay').textContent = 'Isso! Segure…' + (oct ? ' (você cantou uma oitava ' + (oct > 0 ? 'acima' : 'abaixo') + ', tudo bem)' : ''); }
+    else { G.hold = Math.max(0, G.hold - 1); $('gBig').textContent = d > 0 ? '▼' : '▲'; $('gSay').textContent = d > 0 ? 'Mais grave (desça a voz)' : 'Mais agudo (suba a voz)'; }
+  }
+  $('gHold').style.width = Math.min(100, G.hold / 10 * 100) + '%';
+  if (G.hold >= 10) { G.ok++; G.target = null; $('v-jogo').querySelector('.gamebox').classList.add('hit'); $('gBig').textContent = '🎉'; $('gSay').textContent = 'Acertou!'; $('gScore').textContent = 'Nota ' + G.n + ' de 10 · acertos: ' + G.ok; setTimeout(gNext, 1300); }
+}
+async function gameStart() {
+  stopAll();
+  try { await Mic.start(); } catch (e) { $('gSay').textContent = micError(e); return; }
+  G.on = true; G.n = 0; G.ok = 0; G.prev = null; $('gStart').textContent = 'Jogando…'; $('gStart').disabled = true; $('gAgain').disabled = false; $('gSkip').disabled = false;
+  clearInterval(G.timer); G.timer = setInterval(gTick, 80); gNext();
+}
+function gFinish() {
+  const ok = G.ok; gameStop();
+  $('gBig').textContent = ok >= 8 ? '🏆' : ok >= 5 ? '👍' : '💪'; $('gSay').textContent = 'Você acertou ' + ok + ' de 10. ' + (ok >= 8 ? 'Excelente!' : ok >= 5 ? 'Bom! Amanhã tem mais.' : 'Faz parte do começo. A prática melhora rápido.');
+  Store.d.games = [{ date: new Date().toISOString(), ok }, ...(Store.d.games || [])].slice(0, 200); Store.save(); Day.mark('jogo'); gHist();
+}
+function gHist() { const L = (Store.d.games || []).slice(0, 7); $('gHist').textContent = L.length ? 'Últimas partidas: ' + L.map(x => x.ok + '/10').join(' · ') : ''; }
+$('gStart').onclick = () => gameStart();
+$('gAgain').onclick = () => { if (G.target != null) { noteNow(G.target + 12); G.guard = performance.now() + 1700; } };
+$('gSkip').onclick = () => { G.target = null; gNext(); };
+gHist();
+
+/* ================= MINI-AULAS ================= */
+const det = new Audio(); det.preload = 'auto'; try { det.preservesPitch = false; det.webkitPreservesPitch = false; det.mozPreservesPitch = false; } catch (e) {}
+function playDetuned(m, rate) { stopAll(); const path = NOTES[m].a; load(path).then(u => { det.src = u; det.playbackRate = rate; det.currentTime = 0; const p = det.play(); p && p.catch(() => {}); }); }
+let beepCtx = null;
+function beeps(bpmx, n) { try { beepCtx = beepCtx || new (window.AudioContext || window.webkitAudioContext)(); const t0 = beepCtx.currentTime + 0.1; for (let i = 0; i < n; i++) { const o = beepCtx.createOscillator(), g = beepCtx.createGain(); o.frequency.value = i % 4 === 0 ? 1500 : 1000; g.gain.setValueAtTime(0.3, t0 + i * 60 / bpmx); g.gain.exponentialRampToValueAtTime(0.001, t0 + i * 60 / bpmx + 0.06); o.connect(g); g.connect(beepCtx.destination); o.start(t0 + i * 60 / bpmx); o.stop(t0 + i * 60 / bpmx + 0.07); } } catch (e) {} }
+const LESSONS = [
+  { id: 'grave', t: 'Grave e agudo', p: ['Som grave é o som “grosso”, de baixo. Som agudo é o som “fino”, de cima.', 'Na música, “subir” é ir para o agudo e “descer” é ir para o grave. Quando o app diz “mais agudo”, suba a voz.'], ex: [['Ouvir um som grave', () => playNote(57)], ['Ouvir um som agudo', () => playNote(69)], ['Grave → agudo', () => playSeq([57, 62, 66, 69], 600)]] },
+  { id: 'afinar', t: 'O que é afinar', p: ['Afinar é cantar exatamente a mesma altura do som de referência.', '“Semitonar” é ficar um pouquinho abaixo ou acima. Ouça a diferença: primeiro certo, depois um pouco baixo.'], ex: [['Nota certa', () => playNote(62)], ['A mesma nota, um pouco baixa', () => playDetuned(62, 0.971)], ['Um pouco alta', () => playDetuned(62, 1.03)]] },
+  { id: 'oitava', t: 'Oitava', p: ['A mesma nota pode ser cantada mais grave ou mais aguda: isso é uma “oitava”.', 'Homens costumam cantar uma oitava abaixo das mulheres. Por isso o app às vezes diz “você cantou uma oitava acima”.'], ex: [['Lá grave', () => playNote(57)], ['O mesmo Lá, uma oitava acima', () => playNote(69)]] },
+  { id: 'tempo', t: 'Tempo e contagem', p: ['A música tem uma “batida” constante, como um relógio. A contagem 1, 2, 3, 4 serve para todos entrarem juntos.', 'Antes de cantar, o app faz 4 cliques: na hora do próximo “1”, você começa.'], ex: [['Contagem devagar', () => beeps(60, 8)], ['Contagem mais rápida', () => beeps(96, 8)]] },
+  { id: 'respirar', t: 'Respirar para cantar', p: ['Puxe o ar pelo nariz, enchendo a barriga, sem levantar os ombros.', 'Solte o ar devagar enquanto canta. Respire nas vírgulas vermelhas das frases.'], ex: [['Fazer a respiração guiada', () => { goTo('aquecer', $('breathCard')); startBreath(); }]] },
+  { id: 'fone', t: 'Fone e microfone', p: ['Use fone de ouvido quando o app for te ouvir (jogo, eco com microfone e gravação). Sem fone, o som do app entra no microfone e confunde a análise.', 'Cante perto do celular, num lugar sem barulho.'], ex: [] },
+  { id: 'partitura', t: 'Como seguir a partitura no app', p: ['Você não precisa ler as notas. Olhe só a linha de palavras embaixo da pauta.', 'O quadrado vermelho mostra onde a música está. Siga o quadrado e cante as palavras que estão embaixo dele.'], ex: [] }
+];
+LESSONS.forEach(L => {
+  const c = document.createElement('section'); c.className = 'panel lesson'; c.id = 'lesson-' + L.id;
+  const h = document.createElement('h3'); h.textContent = L.t; c.appendChild(h);
+  L.p.forEach(t => { const p = document.createElement('p'); p.textContent = t; c.appendChild(p); });
+  if (L.ex.length) { const row = document.createElement('div'); row.className = 'row'; L.ex.forEach(([t, fn]) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = '🔊 ' + t; b.onclick = () => { fn(); Day.mark('aula'); }; row.appendChild(b); }); c.appendChild(row); }
+  $('lessons').appendChild(c);
+});
 
 /* ================= início ================= */
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 $('install').hidden = standalone;
 rSet(); drawRange(); renderDiary();
-show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : 'hoje');
+show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio','eco'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : 'hoje');
 addEventListener('resize', () => fit());
 document.addEventListener('visibilitychange', () => { if (document.hidden) { stopAll(); tunerOff(); rMicOff(); } });
 })();

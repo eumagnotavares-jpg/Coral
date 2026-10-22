@@ -198,6 +198,33 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
 .scorerow canvas{display:block;width:100%;height:auto}
 .mbox{position:absolute;top:0;bottom:0;border:3px solid transparent;border-radius:6px;box-sizing:border-box;transition:background .1s}
 .mbox.on{border-color:#C8102E;background:rgba(200,16,46,.10)}
+body.simple .syl .nn{display:none}
+body.simple .tech{display:none}
+.tabs .adv{display:none}
+body.adv .tabs .adv{display:inline-block}
+#moreTab{flex:none;font:700 14px var(--f-display);border:1px dashed var(--silver);background:transparent;color:var(--muted);padding:7px 12px;border-radius:999px;cursor:pointer}
+.hero{gap:12px}
+.bigbtn{font:800 19px var(--f-display);background:var(--red);color:var(--on-red);border:0;border-radius:14px;padding:16px 20px;cursor:pointer;width:100%;max-width:420px}
+.bigbtn:disabled{opacity:.5}
+.chk{display:flex;gap:8px;align-items:center;font-size:15px}
+.chk input{width:20px;height:20px;accent-color:var(--red)}
+.ebig{font:800 22px var(--f-display);min-height:30px}
+.ebig.you{color:var(--ok)}
+.eco-ctl{margin:6px 0}
+.gamebox{display:grid;justify-items:center;gap:8px;padding:12px;border-radius:14px;background:var(--bg);transition:background .2s}
+.gamebox.hit{background:rgba(28,138,76,.18)}
+.gscore{font:700 15px var(--f-display);color:var(--muted)}
+.gbig{font:800 56px/1.1 var(--f-display)}
+.gsay{font:800 22px var(--f-display);text-align:center;min-height:30px}
+.gbar{width:100%;max-width:320px;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.gbar i{display:block;height:100%;width:0;background:var(--ok)}
+.lesson h3{font-family:var(--f-display);font-size:19px;margin:0}
+.lesson p{margin:0}
+.sessbar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--card);border-top:2px solid var(--red);padding:10px max(16px,env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:grid;gap:8px;box-shadow:0 -6px 20px rgba(0,0,0,.08)}
+.sesstxt{display:grid;gap:2px}
+.sesstxt b{font-family:var(--f-display);font-size:16px}
+.sesstxt span{color:var(--muted);font-size:14px}
+body.insess .wrap{padding-bottom:150px}
 @media (max-width:420px){.tiles b{font-size:22px}}
 @media (prefers-reduced-motion:reduce){.syl .t,.orb,.key,.meter .needle{transition:none}.recdot{animation:none}}
 </style>
@@ -211,13 +238,17 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
 
   <nav class="tabs" role="tablist" aria-label="Seções">
     <button role="tab" data-v="hoje" aria-selected="true">Hoje</button>
-    <button role="tab" data-v="treinar" aria-selected="false">Treinar</button>
-    <button role="tab" data-v="afinador" aria-selected="false">Afinador</button>
-    <button role="tab" data-v="corrigir" aria-selected="false">Corrigir</button>
+    <button role="tab" data-v="eco" aria-selected="false">Cantar</button>
+    <button role="tab" data-v="jogo" aria-selected="false">Jogo</button>
     <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
-    <button role="tab" data-v="aquecer" aria-selected="false">Aquecer</button>
-    <button role="tab" data-v="alcance" aria-selected="false">Alcance</button>
+    <button role="tab" data-v="aulas" aria-selected="false">Aulas</button>
+    <button role="tab" data-v="corrigir" aria-selected="false">Corrigir</button>
     <button role="tab" data-v="diario" aria-selected="false">Diário</button>
+    <button role="tab" data-v="treinar" aria-selected="false" class="adv">Trechos</button>
+    <button role="tab" data-v="afinador" aria-selected="false" class="adv">Afinador</button>
+    <button role="tab" data-v="aquecer" aria-selected="false" class="adv">Aquecer</button>
+    <button role="tab" data-v="alcance" aria-selected="false" class="adv">Alcance</button>
+    <button id="moreTab" aria-expanded="false">Mais ›</button>
   </nav>
 
   <!-- HOJE -->
@@ -232,11 +263,69 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
       <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar música</label><span class="save" id="songMsg"></span></div>
       <p class="lead">Enquanto isso, o afinador, o aquecimento e o teste de alcance já funcionam.</p>
     </div>
+    <div class="panel hero" id="todayCard">
+      <div class="lead" id="todaySong"></div>
+      <button class="bigbtn" id="startDay">▶ Começar o treino de hoje</button>
+      <div class="row" id="todaySwitch"></div>
+    </div>
     <div class="panel">
       <h2 id="dayTitle">Treino de hoje</h2>
       <p class="lead" id="dayLead">Uns 15 minutos. Siga na ordem e marque cada passo. Use fone de ouvido.</p>
     </div>
     <ol class="steps-day" id="daySteps"></ol>
+  </section>
+
+  <!-- ECO (cantar frase por frase) -->
+  <section class="view" id="v-eco" hidden>
+    <div class="panel">
+      <h2>Cantar frase por frase</h2>
+      <p class="lead">O app canta uma frase curta. Depois é a sua vez: cante igual enquanto as bolinhas acendem. Repita quantas vezes quiser e só então passe para a próxima.</p>
+      <div class="chips" id="eSecs"></div>
+    </div>
+    <div class="stage">
+      <div class="lbl" id="eLbl">Escolha o trecho e toque em Ouvir</div>
+      <div class="ebig" id="eSay">&nbsp;</div>
+      <div class="lines big" id="eLine"></div>
+      <div id="eScore"></div>
+      <div class="row eco-ctl">
+        <button class="bigbtn" id="eGo">▶ Ouvir a frase</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="ePrev">‹ Frase anterior</button>
+        <button class="btn" id="eNext">Próxima frase ›</button>
+        <span class="lead" id="eNum"></span>
+      </div>
+      <div class="row">
+        <div class="seg" role="group" aria-label="Velocidade"><button id="eSlow" aria-pressed="true">Bem devagar</button><button id="eMid" aria-pressed="false">Devagar</button><button id="eFast" aria-pressed="false">Normal</button></div>
+      </div>
+      <div class="row">
+        <div class="seg" role="group" aria-label="Repetir"><button data-r="1" aria-pressed="false">1 vez</button><button data-r="2" aria-pressed="true">2 vezes</button><button data-r="3" aria-pressed="false">3 vezes</button></div>
+        <label class="chk"><input type="checkbox" id="eMic"> 🎤 Ouvir minha voz</label>
+      </div>
+      <p class="msg" id="eRes"></p>
+    </div>
+  </section>
+
+  <!-- JOGO (acerte a nota) -->
+  <section class="view" id="v-jogo" hidden>
+    <div class="panel">
+      <h2>Jogo: acerte a nota</h2>
+      <p class="lead">O app toca uma nota. Cante “ô” até a tela ficar verde e segure um pouquinho. São 10 notas. De fone ou num lugar silencioso.</p>
+      <div class="gamebox">
+        <div class="gscore" id="gScore">0 de 10</div>
+        <div class="gbig" id="gBig">🎵</div>
+        <div class="gsay" id="gSay">Toque em Começar</div>
+        <div class="gbar"><i id="gHold"></i></div>
+      </div>
+      <div class="row"><button class="bigbtn" id="gStart">▶ Começar</button><button class="btn" id="gAgain" disabled>🔊 Ouvir a nota de novo</button><button class="btn" id="gSkip" disabled>Pular</button></div>
+      <p class="lead" id="gHist"></p>
+    </div>
+  </section>
+
+  <!-- AULAS -->
+  <section class="view" id="v-aulas" hidden>
+    <div class="panel"><h2>Mini-aulas de 1 minuto</h2><p class="lead">Explicações curtas, sem termos difíceis, com exemplos para ouvir.</p></div>
+    <div id="lessons" class="view"></div>
   </section>
 
   <!-- TREINAR -->
@@ -341,6 +430,8 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
         <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Mais rápido</button></div>
         <div class="count" id="fCount" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       </div>
+      <div class="row" id="fSrcRow" hidden><span>Som:</span><div class="seg" role="group" aria-label="Som"><button id="fProf" aria-pressed="true">🎙 Professor (coral)</button><button id="fPiano" aria-pressed="false">🎹 Só a minha voz</button></div></div>
+      <p class="lead" id="fSrcNote" hidden>No áudio do professor você ouve o coral inteiro, na velocidade de verdade. A letra e o quadrado vermelho seguem automaticamente.</p>
       <div class="prog"><i id="fProg"></i></div>
     </div>
     <div class="stage">
@@ -409,6 +500,11 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
     </div>
     <div class="panel"><h2>Histórico</h2><ul class="log" id="dLog"></ul></div>
     <div class="panel">
+      <h2>Preferências</h2>
+      <label class="chk"><input type="checkbox" id="prefTech"> Mostrar detalhes técnicos (nomes das notas e números)</label>
+      <label class="chk"><input type="checkbox" id="prefAdv"> Mostrar sempre as ferramentas avançadas (Trechos, Afinador, Aquecer, Alcance)</label>
+    </div>
+    <div class="panel">
       <h2>Músicas neste aparelho</h2>
       <ul class="log" id="songList"></ul>
       <div class="row"><label class="file btn"><input type="file" id="songIn2" accept="application/json,.json,text/plain">Importar outra música</label><span class="save" id="songMsg2"></span></div>
@@ -421,6 +517,10 @@ select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:
   </section>
 
   <p class="foot" id="credit"></p>
+</div>
+<div class="sessbar" id="sessBar" hidden>
+  <div class="sesstxt"><b id="sessStep"></b><span id="sessTip"></span></div>
+  <div class="row"><button class="btn pri" id="sessDo">Fazer</button><button class="btn" id="sessNext">Próximo ›</button><button class="btn" id="sessEnd" aria-label="Sair do treino">✕</button></div>
 </div>
 <script src="analysis.js"></script>
 <script src="app.js"></script>
