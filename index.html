@@ -1,4 +1,418 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Coral · Tenor</title>
-<style>body{font-family:-apple-system,Arial,sans-serif;background:#F3F4F5;color:#151617;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center}b{color:#C8102E}</style></head>
-<body><div><h1>Coral <b>·</b> Tenor</h1><p>Atualizando o app. Volte em alguns minutos.</p></div>
-<script>if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(r=>r.forEach(x=>x.unregister()));if(window.caches)caches.keys().then(k=>k.forEach(c=>caches.delete(c)));</script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Coral · Tenor</title>
+<meta name="description" content="Treino da parte de tenor do coral.">
+<meta name="theme-color" content="#F3F4F5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Coral">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+/* Layout: estúdio de bolso em abas; uma coluna; cartões só para objetos (trecho, exercício, passo do dia) */
+:root{
+  --bg:#F3F4F5; --card:#FFFFFF; --ink:#151617; --muted:#6C7076; --line:#D9DCE0; --silver:#B9BEC4;
+  --red:#C8102E; --red-soft:#FBE7EA; --on-red:#FFFFFF;
+  --ok:#1C8A4C; --near:#B86E00; --low:#2F62C0; --high:#C8102E;
+  --f-display:"Archivo","Helvetica Neue",-apple-system,"SF Pro Display",Arial,sans-serif;
+  --f-body:-apple-system,"SF Pro Text","Segoe UI",Roboto,Arial,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#111214; --card:#1A1C1F; --ink:#ECEDEF; --muted:#9BA0A6; --line:#2C2F33; --silver:#4A4F55;
+  --red:#FF4A5F; --red-soft:#3A1A20; --on-red:#FFFFFF; --ok:#4CC27F; --near:#F0A63A; --low:#7FA8FF; --high:#FF5A6E; color-scheme:dark}}
+*{-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.45;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:760px;margin:0 auto;padding-block:12px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:14px}
+.wrap>*{min-width:0}
+header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+header h1{font-family:var(--f-display);font-weight:800;font-size:28px;line-height:1.05;margin:0;letter-spacing:-.01em}
+header h1 span{color:var(--red)}
+header .song{color:var(--muted);font-weight:600}
+.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding-block:8px;border-bottom:1px solid var(--line);margin-inline:-4px;padding-inline:4px}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:none;font:700 14px var(--f-display);letter-spacing:.02em;border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+.view{display:grid;gap:14px}
+.view>*{min-width:0}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;min-width:0}
+.panel h2{font-family:var(--f-display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted)}
+.panel.alert{border-color:var(--red)}
+.lead{margin:0;color:var(--muted);font-size:15px}
+.lg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 16px}
+.lg div{display:flex;gap:10px;align-items:center;min-width:0}
+.lg svg{flex:none}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row>span{color:var(--muted);font-size:14px}
+.seg{display:inline-flex;border:1px solid var(--silver);border-radius:999px;overflow:hidden;flex-wrap:wrap}
+.seg button{font:600 14px var(--f-body);border:0;background:transparent;color:var(--ink);padding:7px 13px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.btn{font:600 15px var(--f-body);border:1px solid var(--silver);background:transparent;color:var(--ink);border-radius:999px;padding:9px 15px;cursor:pointer}
+.btn.pri{background:var(--red);border-color:var(--red);color:var(--on-red)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn:active{background:var(--red-soft)}
+.btn.pri:active{filter:brightness(.92);background:var(--red)}
+button:focus-visible,select:focus-visible,input:focus-visible,label.file:focus-within{outline:3px solid var(--ink);outline-offset:2px}
+.sec{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 14px 10px;display:grid;gap:8px}
+.sec.on{border-color:var(--red)}
+.sh{display:flex;gap:12px;align-items:center}
+.play{flex:none;width:46px;height:46px;border-radius:50%;border:0;background:var(--red);color:var(--on-red);cursor:pointer;display:grid;place-items:center}
+.play svg{width:18px;height:18px;fill:currentColor}
+.play.rec{background:var(--ink);color:var(--bg)}
+.sh h3{font-family:var(--f-display);font-weight:700;font-size:19px;margin:0;line-height:1.15}
+.sh .n{font:700 12px var(--f-display);color:var(--red);letter-spacing:.08em;text-transform:uppercase}
+.count{margin-left:auto;display:flex;gap:4px}
+.count i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.count i.hit{background:var(--red)}
+.tip{margin:0;color:var(--muted);font-size:15px}
+.lines{display:grid;gap:2px;min-width:0}
+.ln{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:1px;padding:6px 0 8px;border-top:1px dashed var(--line);cursor:pointer;min-width:0}
+.ln:first-child{border-top:0}
+.ln.wrap{flex-wrap:wrap;row-gap:4px}
+.syl{position:relative;height:88px;display:flex;flex-direction:column;align-items:flex-start;gap:3px;box-sizing:border-box;cursor:pointer}
+.syl .t{font:600 15.5px var(--f-body);padding:1px 3px;border-radius:6px;white-space:nowrap;color:var(--muted);transition:background .08s,color .08s}
+.syl .h{align-self:stretch;margin:0 2px;height:3px;border-radius:2px;background:var(--silver)}
+.syl .nn{font:600 11px/1.1 var(--f-body);color:var(--muted);opacity:.8;padding:0 3px;white-space:nowrap}
+.syl.br{padding-right:9px}
+.syl.br::after{content:"’";position:absolute;right:0;top:var(--y);font:800 20px/1 var(--f-display);color:var(--red)}
+.syl.done .t{color:var(--ink)}
+.syl.cur .t{background:var(--red);color:var(--on-red)}
+.syl.cur .h{background:var(--red)}
+.syl.mel .t{color:var(--silver)}
+.syl.ping .t{background:var(--ink);color:var(--bg)}
+.syl.g-ok .t{background:var(--ok);color:#fff}
+.syl.g-near .t{background:var(--near);color:#fff}
+.syl.g-high .t{background:var(--high);color:#fff}
+.syl.g-low .t{background:var(--low);color:#fff}
+.syl.g-early .t{background:var(--near);color:#fff}
+.syl.g-late .t{background:var(--low);color:#fff}
+.syl.g-none .t{color:var(--silver);text-decoration:line-through}
+.syl.g-skip .t{color:var(--silver)}
+.big .syl{height:104px}
+.big .syl .t{font-size:22px}
+.big .syl .nn{font-size:12px}
+.kbd{display:flex;align-items:flex-end;gap:4px;height:156px}
+.key{flex:1 1 0;min-width:0;border:1px solid var(--silver);background:var(--bg);border-radius:8px 8px 4px 4px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 0;font:700 13px var(--f-body);color:var(--ink);cursor:pointer;transition:background .1s}
+.key small{font-weight:600;font-size:10px;color:var(--muted)}
+.key.on,.key.sel{background:var(--red);border-color:var(--red);color:var(--on-red)}
+.key.on small,.key.sel small{color:var(--on-red)}
+.axis{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-top:-4px}
+/* hoje */
+.steps-day{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.step{display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.step .k{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font:800 15px var(--f-display);background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.step.done .k{background:var(--ok);color:#fff;border-color:var(--ok)}
+.step.next{border-color:var(--red)}
+.step.next .k{background:var(--red);color:var(--on-red);border-color:var(--red)}
+.step b{font-family:var(--f-display);font-size:17px;display:block;line-height:1.2}
+.step p{margin:2px 0 8px;color:var(--muted);font-size:15px}
+.step.done p{margin-bottom:0}
+/* ensaio */
+.map{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.map li{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--card)}
+.map li .k{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--f-display);background:var(--bg);color:var(--muted)}
+.map li b{font-family:var(--f-display);font-weight:700;display:block;line-height:1.2}
+.map li small{color:var(--muted)}
+.map li .tm{font:600 13px var(--f-body);color:var(--muted);font-variant-numeric:tabular-nums}
+.map li.now{border-color:var(--red)}
+.map li.now .k{background:var(--red);color:var(--on-red)}
+.map li.past{opacity:.6}
+.stage{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:grid;gap:4px;min-width:0}
+.stage .lbl{font:700 12px var(--f-display);letter-spacing:.08em;text-transform:uppercase;color:var(--red)}
+.stage .nx{opacity:.45}
+.prog{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--red)}
+/* aquecer */
+.breath{display:grid;place-items:center;gap:8px;padding:6px 0}
+.orb{width:120px;height:120px;border-radius:50%;border:2px solid var(--red);display:grid;place-items:center;transform:scale(.7);transition:transform 1s linear;background:var(--red-soft)}
+.orb b{font:800 30px var(--f-display);color:var(--red);font-variant-numeric:tabular-nums}
+.breath .st{font:700 18px var(--f-display)}
+.wstat{font-size:14px;color:var(--muted);min-height:1.4em}
+.wstat.warn{color:var(--high);font-weight:600}
+/* afinador */
+.tuner{display:grid;gap:10px;justify-items:center;text-align:center}
+.tuner .note{font:800 64px/1 var(--f-display);letter-spacing:-.02em;font-variant-numeric:tabular-nums;min-height:64px}
+.tuner .cents{font:700 18px var(--f-display);color:var(--muted);font-variant-numeric:tabular-nums;min-height:24px}
+.tuner .say{font:800 22px var(--f-display);min-height:30px}
+.meter{position:relative;width:100%;max-width:420px;height:44px}
+.meter .scale{position:absolute;left:0;right:0;top:20px;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--high) 0%,var(--near) 25%,var(--ok) 42%,var(--ok) 58%,var(--near) 75%,var(--high) 100%);opacity:.5}
+.meter .zero{position:absolute;left:50%;top:6px;width:2px;height:32px;background:var(--ink);transform:translateX(-50%)}
+.meter .needle{position:absolute;left:50%;top:0;width:6px;height:44px;border-radius:3px;background:var(--ink);transform:translateX(-50%);transition:left .12s linear}
+.meter .lab{position:absolute;top:30px;font-size:11px;color:var(--muted)}
+canvas#trail{width:100%;height:190px;border-radius:10px;background:var(--bg);border:1px solid var(--line)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{font:600 14px var(--f-body);border:1px solid var(--silver);background:transparent;color:var(--ink);border-radius:999px;padding:6px 11px;cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--red);border-color:var(--red);color:var(--on-red)}
+/* alcance */
+.rng{position:relative;height:64px;margin-top:6px}
+.rng .bar{position:absolute;left:0;right:0;top:26px;height:10px;border-radius:5px;background:var(--line)}
+.rng .you{position:absolute;top:22px;height:18px;border-radius:9px;background:var(--ok);opacity:.85}
+.rng .song{position:absolute;top:44px;height:6px;border-radius:3px;background:var(--red)}
+.rng .intro{position:absolute;top:44px;height:6px;border-radius:3px;background:var(--red);opacity:.35}
+.rng .tick{position:absolute;top:0;font-size:11px;color:var(--muted);transform:translateX(-50%);white-space:nowrap}
+.rng .tick::after{content:"";position:absolute;left:50%;top:15px;width:1px;height:8px;background:var(--silver)}
+.legend-dots{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.legend-dots i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.now-note{font:800 34px var(--f-display);line-height:1}
+.live{font:700 15px var(--f-body);color:var(--muted)}
+.live.match{color:var(--ok)}
+/* corrigir */
+.steps{margin:0;padding-left:20px;display:grid;gap:6px}
+label.file{display:inline-flex;align-items:center;gap:8px;cursor:pointer;position:relative}
+label.file input{position:absolute;opacity:0;width:1px;height:1px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:2px}
+.tile b{font:800 26px var(--f-display);font-variant-numeric:tabular-nums}
+.tile span{font-size:13px;color:var(--muted)}
+.msg{margin:0;font-size:15px}
+.err{color:var(--high);font-weight:600}
+.recbox{display:grid;gap:6px}
+.recdot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:6px;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+/* diário */
+.st-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.st-row:first-of-type{border-top:0}
+.st-row .nm{font-weight:600;min-width:0;flex:1 1 170px}
+.st-row .seg button{padding:6px 10px;font-size:13px}
+.st-row .seg button[data-v="firme"][aria-pressed="true"]{background:var(--ok);color:#fff}
+.log{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.log li{display:grid;grid-template-columns:auto 1fr;gap:10px;font-size:15px;align-items:baseline}
+.log time{font:600 13px var(--f-body);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+textarea{width:100%;box-sizing:border-box;font:16px var(--f-body);border:1px solid var(--silver);border-radius:8px;padding:8px;background:var(--bg);color:var(--ink);resize:vertical;min-height:54px}
+select{font:600 16px var(--f-body);border:1px solid var(--silver);border-radius:8px;padding:7px 10px;background:var(--bg);color:var(--ink);max-width:100%}
+.save{font-size:13px;color:var(--muted)}
+.foot{color:var(--muted);font-size:13px;text-align:center}
+@media (max-width:420px){.tiles b{font-size:22px}}
+@media (prefers-reduced-motion:reduce){.syl .t,.orb,.key,.meter .needle{transition:none}.recdot{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Coral <span>· Tenor</span></h1>
+    <span class="song" id="songName">…</span>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Seções">
+    <button role="tab" data-v="hoje" aria-selected="true">Hoje</button>
+    <button role="tab" data-v="treinar" aria-selected="false">Treinar</button>
+    <button role="tab" data-v="afinador" aria-selected="false">Afinador</button>
+    <button role="tab" data-v="corrigir" aria-selected="false">Corrigir</button>
+    <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
+    <button role="tab" data-v="aquecer" aria-selected="false">Aquecer</button>
+    <button role="tab" data-v="alcance" aria-selected="false">Alcance</button>
+    <button role="tab" data-v="diario" aria-selected="false">Diário</button>
+  </nav>
+
+  <!-- HOJE -->
+  <section class="view" id="v-hoje">
+    <div class="panel alert" id="install" hidden>
+      <h2>Instale o app</h2>
+      <p class="msg">No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta ⬆) e depois em <b>Adicionar à Tela de Início</b>. Ele passa a abrir como app e funciona sem internet.</p>
+    </div>
+    <div class="panel alert" id="noSong" hidden>
+      <h2>Importe a sua música</h2>
+      <p class="msg">A letra e as notas de cada música ficam só no seu aparelho. Toque abaixo e escolha o arquivo de música (.json) que o Claude te mandou. Faça isso uma vez só.</p>
+      <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar música</label><span class="save" id="songMsg"></span></div>
+      <p class="lead">Enquanto isso, o afinador, o aquecimento e o teste de alcance já funcionam.</p>
+    </div>
+    <div class="panel">
+      <h2 id="dayTitle">Treino de hoje</h2>
+      <p class="lead" id="dayLead">Uns 15 minutos. Siga na ordem e marque cada passo. Use fone de ouvido.</p>
+    </div>
+    <ol class="steps-day" id="daySteps"></ol>
+  </section>
+
+  <!-- TREINAR -->
+  <section class="view" id="v-treinar" hidden>
+    <div class="panel" aria-label="Como ler">
+      <h2>Como ler</h2>
+      <div class="lg">
+        <div><svg width="58" height="40" viewBox="0 0 58 40" aria-hidden="true"><text x="2" y="34" font-size="13" font-weight="700" fill="currentColor">vou</text><text x="30" y="14" font-size="13" font-weight="700" fill="currentColor">pra</text></svg><span><b>Mais alto</b> na linha = nota mais aguda. <b>Mais baixo</b> = mais grave. Toque na sílaba para ouvir a nota.</span></div>
+        <div><svg width="58" height="40" viewBox="0 0 58 40" aria-hidden="true"><text x="2" y="18" font-size="13" font-weight="700" fill="currentColor">vou</text><rect x="4" y="26" width="50" height="3" rx="1.5" fill="currentColor" opacity=".45"/></svg><span><b>Traço comprido</b> = segure a nota por mais tempo.</span></div>
+        <div><svg width="58" height="40" viewBox="0 0 58 40" aria-hidden="true"><text x="18" y="30" font-size="26" font-weight="800" fill="#C8102E">’</text></svg><span><b>Vírgula vermelha</b> = pausa curtinha para respirar.</span></div>
+        <div><svg width="58" height="40" viewBox="0 0 58 40" aria-hidden="true"><text x="2" y="26" font-size="13" font-weight="700" fill="currentColor">Oh</text><text x="26" y="26" font-size="13" font-weight="700" fill="currentColor" opacity=".4">~ ~</text></svg><span><b>~</b> = mesma sílaba, só muda a nota.</span></div>
+      </div>
+      <div class="row"><span>Velocidade:</span>
+        <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Um pouco mais rápido</button></div>
+      </div>
+      <div class="row"><span>Ao tocar numa sílaba:</span>
+        <div class="seg" role="group" aria-label="Ao tocar numa sílaba"><button id="mN" aria-pressed="true">Ouvir a nota</button><button id="mL" aria-pressed="false">Recomeçar dali</button></div>
+      </div>
+    </div>
+    <div class="panel" aria-label="Teclado do tenor">
+      <h2>Teclado do tenor · as notas da sua parte</h2>
+      <p class="lead">Igual ao piano do professor: toque numa tecla, ouça e cante a mesma nota.</p>
+      <div class="kbd" id="kbd"></div>
+      <div class="axis"><span>← mais grave</span><span>mais agudo →</span></div>
+      <div class="row">
+        <button class="btn" id="dGA">Grave × agudo</button>
+        <button class="btn" id="dUp">▲ Subindo</button>
+        <button class="btn" id="dDn">▼ Descendo</button>
+      </div>
+    </div>
+    <div id="secs" class="view"></div>
+  </section>
+
+  <!-- AFINADOR -->
+  <section class="view" id="v-afinador" hidden>
+    <div class="panel">
+      <h2>Afinador ao vivo</h2>
+      <p class="lead">Cante um “ô” e veja na hora a nota que está saindo. Escolha um alvo para treinar uma nota específica.</p>
+      <div class="row"><button class="btn pri" id="tOn">🎤 Ligar microfone</button><span id="tStat"></span></div>
+      <div class="tuner">
+        <div class="note" id="tNote">–</div>
+        <div class="meter" aria-hidden="true"><div class="scale"></div><div class="zero"></div><div class="needle" id="tNeedle"></div><span class="lab" style="left:0">▼ grave</span><span class="lab" style="right:0">agudo ▲</span></div>
+        <div class="cents" id="tCents">&nbsp;</div>
+        <div class="say" id="tSay">&nbsp;</div>
+      </div>
+      <canvas id="trail" width="700" height="260" aria-hidden="true"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Nota alvo</h2>
+      <div class="chips" id="tTargets"></div>
+      <div class="row"><button class="btn" id="tHear">▶ Ouvir o alvo</button><span class="lead" id="tTip">Sem alvo: o afinador mostra a nota mais próxima.</span></div>
+    </div>
+  </section>
+
+  <!-- CORRIGIR -->
+  <section class="view" id="v-corrigir" hidden>
+    <div class="panel">
+      <h2>Cantar e corrigir</h2>
+      <p class="lead"><b>Ponha o fone de ouvido.</b> Sem fone, o som do app entra no microfone e o resultado fica errado.</p>
+      <div class="row">
+        <select id="cSec" aria-label="Trecho"></select>
+        <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Mais rápido</button></div>
+      </div>
+      <div class="row">
+        <button class="btn pri" id="cRec">● Cantar e corrigir</button>
+        <label class="file btn"><input type="file" id="cFile" accept="audio/*,.m4a,.mp3,.wav,.aac,.caf">Enviar gravação</label>
+      </div>
+      <p class="msg" id="cMsg">O app toca o trecho com contagem e grava sua voz ao mesmo tempo. A análise roda no celular; nada sai do aparelho.</p>
+    </div>
+    <div class="stage" id="cStage" hidden>
+      <div class="lbl"><span class="recdot"></span><span id="cLbl">Gravando</span></div>
+      <div class="lines big" id="cNow"></div>
+      <div class="lines nx" id="cNext"></div>
+      <div class="prog"><i id="cProg"></i></div>
+      <div class="row"><button class="btn" id="cStop">■ Parar e analisar</button></div>
+    </div>
+    <div class="panel" id="cOut" hidden>
+      <h2>Resultado</h2>
+      <div class="seg" role="group" aria-label="Ver"><button id="vPitch" aria-pressed="true">Afinação</button><button id="vRhythm" aria-pressed="false">Ritmo</button></div>
+      <div class="tiles">
+        <div class="tile"><b id="t1">–</b><span id="t1l">afinadas</span></div>
+        <div class="tile"><b id="t2">–</b><span id="t2l">quase</span></div>
+        <div class="tile"><b id="t3">–</b><span id="t3l">fora</span></div>
+      </div>
+      <p class="msg" id="cSum"></p>
+      <div class="legend-dots" id="cLeg"></div>
+      <div class="lines" id="cLines"></div>
+      <p class="lead">Toque numa sílaba para ouvir a nota certa e comparar.</p>
+      <div class="row"><button class="btn pri" id="cSave">Salvar no diário</button><button class="btn" id="cAgain">Cantar de novo</button><span class="save" id="cSaved"></span></div>
+    </div>
+    <p class="foot">A análise mede altura e entrada de cada nota, não a técnica. Use como guia e confirme com o professor.</p>
+  </section>
+
+  <!-- ENSAIO -->
+  <section class="view" id="v-ensaio" hidden>
+    <div class="panel">
+      <h2>Ensaio completo</h2>
+      <p class="lead">A música inteira na ordem do coral, com as repetições. A ordem é a minha leitura da partitura: confirme com o professor.</p>
+      <div class="row">
+        <button class="play" id="fPlay" aria-label="Tocar ensaio completo"></button>
+        <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Mais rápido</button></div>
+        <div class="count" id="fCount" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="prog"><i id="fProg"></i></div>
+    </div>
+    <div class="stage">
+      <div class="lbl" id="fLbl">Aperte o play</div>
+      <div class="lines big" id="fNow"></div>
+      <div class="lines nx" id="fNext"></div>
+    </div>
+    <div class="panel">
+      <h2>Mapa da música</h2>
+      <p class="lead">Toque numa parte para começar dali.</p>
+      <ol class="map" id="map"></ol>
+    </div>
+  </section>
+
+  <!-- AQUECER -->
+  <section class="view" id="v-aquecer" hidden>
+    <div class="panel">
+      <h2>Antes de cantar</h2>
+      <p class="lead">De 5 a 8 minutos, na ordem. A voz deve sair leve: se arranhar ou apertar, pare aquela repetição e só ouça.</p>
+    </div>
+    <div class="sec" id="breathCard">
+      <div class="sh"><button class="play" id="bPlay" aria-label="Começar respiração"></button><div><div class="n">1 · Respiração</div><h3>Inspira, segura, solta “sss”</h3></div></div>
+      <p class="tip">Ombros parados, ar indo para a barriga. 4 ciclos: inspire em 4, segure em 4, solte em “sss” contando 8.</p>
+      <div class="breath"><div class="orb" id="orb"><b id="orbN">4</b></div><div class="st" id="orbT">Pronto?</div></div>
+    </div>
+    <div id="warm" class="view"></div>
+  </section>
+
+  <!-- ALCANCE -->
+  <section class="view" id="v-alcance" hidden>
+    <div class="panel">
+      <h2>Teste do seu alcance</h2>
+      <p class="lead">Descubra a nota mais grave e a mais aguda que você canta <b>confortável</b>. Ouça, cante “ô” junto e responda com sinceridade.</p>
+      <div class="row"><div class="seg" role="group" aria-label="Direção"><button id="rUp" aria-pressed="true">▲ Para o agudo</button><button id="rDn" aria-pressed="false">▼ Para o grave</button></div></div>
+      <div class="row" style="align-items:flex-end;gap:14px">
+        <div><div class="lead" style="font-size:13px">Nota da vez</div><div class="now-note" id="rNote">Ré 3</div></div>
+        <button class="btn" id="rPlay">▶ Ouvir</button>
+        <button class="btn" id="rMic">🎤 Conferir com microfone</button>
+      </div>
+      <div class="live" id="rLive" hidden>Microfone: –</div>
+      <div class="row">
+        <button class="btn pri" id="rYes">Consegui confortável ✓</button>
+        <button class="btn" id="rNo">Apertou / não deu ✗</button>
+      </div>
+      <p class="msg" id="rMsg">Comece pelo agudo. A primeira nota é tranquila para qualquer voz masculina.</p>
+    </div>
+    <div class="panel">
+      <h2>Resultado</h2>
+      <div class="rng" id="rng"></div>
+      <div class="legend-dots"><span><i style="background:var(--ok)"></i>Seu alcance confortável</span><span><i style="background:var(--red)"></i>O que a letra pede</span><span><i style="background:var(--red);opacity:.35"></i>Introdução</span></div>
+      <p class="msg" id="rRes">Ainda não medido.</p>
+    </div>
+  </section>
+
+  <!-- DIÁRIO -->
+  <section class="view" id="v-diario" hidden>
+    <div class="panel"><h2>Resumo</h2><p class="msg" id="dSum">Nenhum treino registrado ainda.</p></div>
+    <div class="panel"><h2>Como está cada trecho</h2><div id="dStatus"></div></div>
+    <div class="panel">
+      <h2>Registrar treino</h2>
+      <div class="row"><span>Minutos:</span><div class="seg" role="group" aria-label="Minutos" id="dMin"><button data-m="5" aria-pressed="false">5</button><button data-m="10" aria-pressed="true">10</button><button data-m="15" aria-pressed="false">15</button><button data-m="20" aria-pressed="false">20</button><button data-m="30" aria-pressed="false">30+</button></div></div>
+      <textarea id="dNote" placeholder="O que treinou, o que pegou, o que o professor falou…" aria-label="Anotação"></textarea>
+      <div class="row"><button class="btn pri" id="dAdd">Registrar treino</button></div>
+    </div>
+    <div class="panel"><h2>Histórico</h2><ul class="log" id="dLog"></ul></div>
+    <div class="panel">
+      <h2>Músicas neste aparelho</h2>
+      <ul class="log" id="songList"></ul>
+      <div class="row"><label class="file btn"><input type="file" id="songIn2" accept="application/json,.json,text/plain">Importar outra música</label><span class="save" id="songMsg2"></span></div>
+    </div>
+    <div class="panel">
+      <h2>Backup</h2>
+      <p class="lead">Seus dados ficam só neste iPhone. Faça um backup de vez em quando e guarde no app Arquivos ou mande para você no WhatsApp.</p>
+      <div class="row"><button class="btn" id="bkOut">Exportar backup</button><label class="file btn"><input type="file" id="bkIn" accept="application/json,.json">Restaurar backup</label><span class="save" id="bkMsg"></span></div>
+    </div>
+  </section>
+
+  <p class="foot" id="credit"></p>
+</div>
+<script src="analysis.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
