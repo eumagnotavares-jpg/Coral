@@ -1,3 +1,5 @@
+/* Safari/iOS: ReadableStream sem iteração assíncrona — complemento para o leitor de PDF */
+(function(){try{var R=globalThis.ReadableStream;if(!R||R.prototype[Symbol.asyncIterator])return;R.prototype.values=function(o){var pc=!!(o&&o.preventCancel),r=this.getReader();return{next:function(){return r.read().then(function(x){if(x.done)try{r.releaseLock()}catch(e){}return x},function(e){try{r.releaseLock()}catch(_){}throw e})},return:function(v){var p=pc?Promise.resolve():r.cancel(v);return p.then(function(){try{r.releaseLock()}catch(e){}return{done:true,value:v}})},[Symbol.asyncIterator]:function(){return this}}};R.prototype[Symbol.asyncIterator]=R.prototype.values}catch(e){}})();
 /**
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
