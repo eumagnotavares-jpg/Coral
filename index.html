@@ -47,6 +47,13 @@ header .song{color:var(--muted);font-weight:600}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;min-width:0}
 .panel h2{font-family:var(--f-display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted)}
 .panel.alert{border-color:var(--red)}
+.lssongs{flex-wrap:wrap}
+.lsbody{margin-top:12px;line-height:1.5}
+.lsbody .lsl{margin:0 0 .35em}
+.lsbody .lsm{color:var(--muted);font-style:italic;font-size:.8em}
+.lsbody .lsh{font-family:var(--f-display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--red);margin:1.2em 0 .4em;border-top:1px solid var(--line);padding-top:.8em}
+.lsbody .lsh:first-child{margin-top:0;border-top:0;padding-top:0}
+.lsbody .lsgap{height:.8em}
 .lead{margin:0;color:var(--muted);font-size:15px}
 .lg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 16px}
 .lg div{display:flex;gap:10px;align-items:center;min-width:0}
@@ -245,6 +252,7 @@ body.insess .wrap{padding-bottom:150px}
 
   <nav class="tabs" role="tablist" aria-label="Seções">
     <button role="tab" data-v="hoje" aria-selected="true">Hoje</button>
+    <button role="tab" data-v="musicas" aria-selected="false">Músicas</button>
     <button role="tab" data-v="eco" aria-selected="false">Cantar</button>
     <button role="tab" data-v="jogo" aria-selected="false">Jogo</button>
     <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
@@ -259,6 +267,30 @@ body.insess .wrap{padding-bottom:150px}
   </nav>
 
   <div class="nowbox" id="nowBox" hidden></div>
+
+  <!-- MÚSICAS -->
+  <section class="view" id="v-musicas" hidden>
+    <div class="panel">
+      <h2>Músicas</h2>
+      <div class="row lssongs" id="lsSongs"></div>
+    </div>
+    <div class="panel">
+      <h2 id="lsTitle"></h2>
+      <div class="row" id="lsTools">
+        <button class="btn" id="lsSmall" aria-label="Letra menor">A−</button>
+        <button class="btn" id="lsBig" aria-label="Letra maior">A+</button>
+        <button class="btn" id="lsEdit">✎ Escrever/colar a letra</button>
+        <button class="btn pri" id="lsOpen">🎤 Treinar esta música</button>
+      </div>
+      <div id="lsEd" class="lyred" hidden>
+        <p class="lead">Escreva ou cole a letra como quiser. Uma linha por frase. Fica salvo só neste iPhone.</p>
+        <textarea id="lsTa" rows="14" aria-label="Letra"></textarea>
+        <div class="row"><button class="btn pri" id="lsSave">Salvar</button><button class="btn" id="lsClear">Voltar para a letra da partitura</button></div>
+      </div>
+      <div id="lsBody" class="lsbody"></div>
+      <p class="lead" id="lsNote"></p>
+    </div>
+  </section>
 
   <!-- HOJE -->
   <section class="view" id="v-hoje">

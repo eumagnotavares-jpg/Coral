@@ -147,7 +147,7 @@ function fit(root) { (root || document).querySelectorAll('.ln').forEach(l => { l
 function karaoke(els, beat) { let cur = null; els.forEach(({ e, el }) => { const on = beat >= e.b && beat < e.b + e.d; el.classList.toggle('cur', on); el.classList.toggle('done', beat >= e.b + e.d); if (on) cur = el; }); return cur; }
 
 /* ================= Abas ================= */
-const VIEWS = ['hoje','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
+const VIEWS = ['hoje','musicas','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
 let view = 'hoje';
 function show(v) {
   if (!VIEWS.includes(v)) v = 'hoje';
@@ -161,6 +161,7 @@ function show(v) {
   VIEWS.forEach(x => $('v-' + x).hidden = x !== v);
   try { history.replaceState(null, '', '#' + v); } catch (e) {}
   if (v === 'hoje') renderDay();
+  if (v === 'musicas') Letras.open();
   window.scrollTo(0, 0);
   requestAnimationFrame(() => fit());
 }
@@ -1031,12 +1032,15 @@ const LYR_SKIP = /^(p|pp|ppp|mp|mf|f|ff|fff|sfz|cresc\.?|crescendo|dim\.?|rubato
 const HAS_LETTER = /[A-Za-zÀ-ÖØ-öø-ÿ]/;
 async function readScoreLyrics() {
   if (!Score.pdf || !Score.has()) return null;
-  const B = PACK.score.boxes, chars = {};
-  for (let n = 1; n <= Score.pdf.numPages; n++) {
-    const pg = await Score.pdf.getPage(n), vp = pg.getViewport({ scale: 1 }), tc = await pg.getTextContent(), W = vp.width, H = vp.height;
+  return readLyricsFrom(Score.pdf, PACK.score.boxes);
+}
+async function readLyricsFrom(pdf, B) {
+  const chars = {};
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const pg = await pdf.getPage(n), vp = pg.getViewport({ scale: 1 }), tc = await pg.getTextContent(), W = vp.width, H = vp.height;
     const list = chars[n] = [];
     tc.items.forEach((it, ii) => {
-      const str = it.str || ''; if (!str.trim() || !HAS_LETTER.test(str) || /[œŒ˙≈∑‰]/.test(str)) return;
+      const str = it.str || ''; if (!str.trim() || (!HAS_LETTER.test(str) && !/^[\s\-–‐]+$/.test(str)) || /[œŒ˙≈∑‰]/.test(str)) return;
       const x0 = it.transform[4], y = it.transform[5], w = it.width || 0, fs = Math.abs(it.transform[3]) || 10, cw = str.length ? w / str.length : 0;
       for (let i = 0; i < str.length; i++) list.push({ c: str[i], x: (x0 + cw * (i + 0.5)) / W, y: (H - y) / H, cw: cw / W, fs: fs / H, it: n * 100000 + ii });
     });
@@ -1047,10 +1051,10 @@ async function readScoreLyrics() {
     let cs = (chars[b.p] || []).filter(c => c.x >= b.x0 - 0.004 && c.x < b.x1 && c.y > bot + 0.55 * h && c.y < bot + 2.0 * h);
     if (!cs.length) { out[m] = []; return; }
     const rows = {}; cs.forEach(c => { const k = Math.round(c.y * 400); rows[k] = (rows[k] || 0) + 1; });
-    const best = +Object.entries(rows).sort((a, b2) => b2[1] - a[1])[0][0]; cs = cs.filter(c => Math.abs(c.y * 400 - best) <= 1.5).sort((a, b2) => a.x - b2.x);
+    const best = +Object.entries(rows).sort((a, b2) => b2[1] - a[1])[0][0]; cs = cs.filter(c => Math.abs(c.y * 400 - best) <= (/[\-–‐]/.test(c.c) ? 5 : 1.5)).sort((a, b2) => a.x - b2.x);
     const syl = []; let cur = [];
     const flush = () => { if (!cur.length) return; const t = cur.map(c => c.c).join('').replace(/^[,.;:!?"“”]+|[,.;:!?"“”]+$/g, ''); if (t && HAS_LETTER.test(t) && !LYR_SKIP.test(t)) syl.push({ x: (cur[0].x + cur[cur.length - 1].x) / 2, x0: cur[0].x, x1: cur[cur.length - 1].x, t }); cur = []; };
-    cs.forEach(c => { if (/[\s\-–_‿]/.test(c.c)) { flush(); return; } if (cur.length && (c.it !== cur[cur.length - 1].it || c.x - cur[cur.length - 1].x > Math.max(c.cw, cur[cur.length - 1].cw) * 1.9)) flush(); cur.push(c); });
+    cs.forEach(c => { if (/[\s\-–‐_‿]/.test(c.c)) { flush(); if (/[\-–‐]/.test(c.c) && syl.length) syl[syl.length - 1].hy = true; return; } if (cur.length && (c.it !== cur[cur.length - 1].it || c.x - cur[cur.length - 1].x > Math.max(c.cw, cur[cur.length - 1].cw) * 1.9)) flush(); cur.push(c); });
     flush(); out[m] = syl;
   });
   return out;
@@ -1076,17 +1080,28 @@ function splitPT(w) {
 function matchSyl(sy, nx) {
   sy = sy.slice();
   if (sy.length < nx.length) {
-    const ex = []; sy.forEach(o => { const ps = o.t.includes(' ') ? [o.t] : splitPT(o.t); if (ps.length < 2) { ex.push(o); return; } const a = o.x0 != null ? o.x0 : o.x, b = o.x1 != null ? o.x1 : o.x; ps.forEach((t, k) => ex.push({ x: a + (b - a) * (k + 0.5) / ps.length, t })); });
+    const ex = []; sy.forEach(o => { const ps = o.t.includes(' ') ? [o.t] : splitPT(o.t); if (ps.length < 2) { ex.push(o); return; } const a = o.x0 != null ? o.x0 : o.x, b = o.x1 != null ? o.x1 : o.x; ps.forEach((t, k) => ex.push({ x: a + (b - a) * (k + 0.5) / ps.length, t, hy: k < ps.length - 1 ? true : !!o.hy })); });
     if (ex.length <= nx.length) sy = ex;
   }
-  while (sy.length > nx.length && sy.length > 1) { let bi = 0, bd = 1e9; for (let i = 0; i < sy.length - 1; i++) { const d = sy[i + 1].x - sy[i].x; if (d < bd) { bd = d; bi = i; } } sy.splice(bi, 2, { x: (sy[bi].x + sy[bi + 1].x) / 2, t: sy[bi].t + ' ' + sy[bi + 1].t }); }
+  while (sy.length > nx.length && sy.length > 1) { let bi = 0, bd = 1e9; for (let i = 0; i < sy.length - 1; i++) { const d = sy[i + 1].x - sy[i].x; if (d < bd) { bd = d; bi = i; } } sy.splice(bi, 2, { x: (sy[bi].x + sy[bi + 1].x) / 2, t: sy[bi].t + (sy[bi].hy ? '' : ' ') + sy[bi + 1].t, hy: sy[bi + 1].hy }); }
   const S = sy.length, N = nx.length, D = [], P = [];
   for (let i = 0; i <= S; i++) { D.push(new Array(N + 1).fill(1e9)); P.push(new Array(N + 1).fill(0)); }
   for (let j = 0; j <= N; j++) D[0][j] = 0;
   for (let i = 1; i <= S; i++) for (let j = 1; j <= N; j++) { const a = D[i - 1][j - 1] + Math.abs(sy[i - 1].x - nx[j - 1]), b = D[i][j - 1]; if (a <= b) { D[i][j] = a; P[i][j] = 1; } else { D[i][j] = b; P[i][j] = 2; } }
   const res = new Array(N).fill(null); let i = S, j = N;
-  while (i > 0 && j > 0) { if (P[i][j] === 1) { res[j - 1] = sy[i - 1].t; i--; j--; } else j--; }
+  while (i > 0 && j > 0) { if (P[i][j] === 1) { res[j - 1] = sy[i - 1]; i--; j--; } else j--; }
   return res;
+}
+function fillLyrics(lines, meas, map, B) {
+    let n = 0;
+    const notes = lines.flat(); let prevHad = false;
+    meas.forEach(([m, b0, b1]) => {
+      const ns = notes.filter(e => e.b >= b0 - 1e-6 && e.b < b1 - 1e-6), box = B[m]; if (!ns.length || !box) return;
+      const w = box.x1 - box.x0, nx = ns.map(e => box.x0 + w * 0.07 + (e.b - b0) / (b1 - b0) * w * 0.88);
+      const r = matchSyl(map[m] || [], nx);
+      ns.forEach((e, k) => { if (r[k]) { e.sp = r[k].t; e.hy = !!r[k].hy; n++; prevHad = true; } else { e.sp = prevHad ? '~' : (e.sp || null); e.hy = false; } });
+    });
+    return n;
 }
 function applyScoreLyrics(map) {
   if (!map) return 0; const B = PACK.score.boxes; let n = 0;
@@ -1096,7 +1111,7 @@ function applyScoreLyrics(map) {
       const ns = notes.filter(e => e.b >= b0 - 1e-6 && e.b < b1 - 1e-6), box = B[m]; if (!ns.length || !box) return;
       const w = box.x1 - box.x0, nx = ns.map(e => box.x0 + w * 0.07 + (e.b - b0) / (b1 - b0) * w * 0.88);
       const r = matchSyl(map[m] || [], nx);
-      ns.forEach((e, k) => { if (r[k]) { e.sp = r[k]; n++; prevHad = true; } else e.sp = prevHad ? '~' : (e.sp || null); });
+      ns.forEach((e, k) => { if (r[k]) { e.sp = r[k].t; e.hy = !!r[k].hy; n++; prevHad = true; } else e.sp = prevHad ? '~' : (e.sp || null); });
     });
   };
   SECS.forEach(s => { if (s.meas) fill(s.lines, s.meas); });
@@ -1117,6 +1132,92 @@ async function loadScoreLyrics() {
   } catch (e) {}
 }
 document.addEventListener('score-ready', loadScoreLyrics);
+
+/* ================= MÚSICAS (letra completa, lida do PDF da pessoa ou escrita por ela) ================= */
+const Letras = (() => {
+  const cache = {}; let sel = null, size = 20;
+  try { size = +localStorage.getItem('coral-letra-size') || 20; } catch (e) {}
+  const keyOf = id => 'coral-letra:' + id;
+  const typed = id => { try { return localStorage.getItem(keyOf(id)) || ''; } catch (e) { return ''; } };
+  async function fromPdf(x) {
+    if (cache[x.id]) return cache[x.id];
+    if (!x.score || !x.score.boxes || !x.full || !x.full.meas) return null;
+    const rec = await SongDB.getPdf(x.id); if (!rec) return null;
+    const lib = await Score.lib(), pdf = await lib.getDocument({ data: new Uint8Array(await rec.blob.arrayBuffer()) }).promise;
+    const map = await readLyricsFrom(pdf, x.score.boxes);
+    const lines = JSON.parse(JSON.stringify(x.full.lines.map(l => l.ev)));
+    lines.flat().forEach(e => { e.sp = null; });
+    if (!fillLyrics(lines, x.full.meas, map, x.score.boxes)) return null;
+    // monta o texto: cada linha da música vira uma linha de texto; partes (blocos) viram títulos
+    const blocks = (x.full.blocks || []).slice(); const out = []; let bi = -1;
+    lines.forEach(ln => {
+      if (!ln.length) return;
+      const b0 = ln[0].b; let nb = bi; while (nb + 1 < blocks.length && blocks[nb + 1].start <= b0 + 1e-6) nb++;
+      if (nb !== bi) { bi = nb; out.push({ h: blocks[bi].label + (blocks[bi].sub ? ' · ' + blocks[bi].sub : '') }); }
+      let t = '', glue = false, any = false;
+      ln.forEach(e => { const s = e.sp; if (!s || s === '~') return; any = true; t += (t && !glue ? ' ' : '') + s; glue = !!e.hy; });
+      out.push({ t: any ? t : '♪ (só melodia, sem letra)' });
+    });
+    // junta linhas iguais seguidas do tipo "só melodia"
+    const res = []; out.forEach(o => { const l = res[res.length - 1]; if (o.t && l && l.t === o.t && o.t.startsWith('♪')) return; res.push(o); });
+    return (cache[x.id] = res);
+  }
+  function chips() {
+    const box = $('lsSongs'); box.innerHTML = '';
+    [...SONGS].sort((a, b) => a.title.localeCompare(b.title)).forEach(x => {
+      const b = document.createElement('button'); b.className = 'btn' + (sel === x.id ? ' pri' : ''); b.textContent = x.title;
+      b.onclick = () => { sel = x.id; chips(); render(); }; box.appendChild(b);
+    });
+  }
+  function importPdf(x) {
+    const d = document.createElement('div'); d.className = 'row';
+    d.innerHTML = '<label class="file btn pri"><input type="file" accept="application/pdf,.pdf">📄 Escolher o PDF da partitura</label><span class="save"></span>';
+    const msg = d.querySelector('.save');
+    d.querySelector('input').onchange = async ev => {
+      const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; msg.textContent = 'Lendo…';
+      try {
+        const lib = await Score.lib(), buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+        if (x.score && doc.numPages !== x.score.pages) { msg.textContent = 'Esse PDF não parece ser a partitura de ' + x.title + '.'; return; }
+        await SongDB.putPdf({ id: x.id, blob: new Blob([buf], { type: 'application/pdf' }) }); delete cache[x.id];
+        if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
+        render();
+      } catch (e) { msg.textContent = 'Não consegui abrir esse PDF.'; }
+    };
+    return d;
+  }
+  async function render() {
+    const x = SONGS.find(s => s.id === sel), body = $('lsBody'), ed = $('lsEd');
+    ed.hidden = true; $('lsTitle').textContent = x ? x.title : ''; body.style.fontSize = size + 'px';
+    if (!x) { body.innerHTML = '<p class="lead">Importe as músicas no Diário para ver as letras aqui.</p>'; $('lsTools').hidden = true; return; }
+    $('lsTools').hidden = false; body.innerHTML = '<p class="lead">Lendo a letra da sua partitura…</p>'; $('lsNote').textContent = '';
+    const t = typed(x.id);
+    if (t) { body.innerHTML = ''; t.split(/\n/).forEach(l => { const p = document.createElement(l.trim() ? 'p' : 'div'); p.className = l.trim() ? 'lsl' : 'lsgap'; p.textContent = l; body.appendChild(p); }); $('lsNote').textContent = 'Letra escrita por você ✓'; return; }
+    let r = null; try { r = await fromPdf(x); } catch (e) {}
+    if (sel !== x.id) return;
+    body.innerHTML = '';
+    if (!r) {
+      const has = await SongDB.getPdf(x.id).catch(() => null);
+      const p = document.createElement('p'); p.className = 'msg';
+      p.textContent = has ? 'Não consegui ler a letra desse PDF. Toque em “✎ Escrever/colar a letra” para colocar a letra você mesmo.' : 'Para ver a letra, escolha o PDF da partitura que o professor mandou. Ele fica guardado só neste iPhone. Ou toque em “✎ Escrever/colar a letra”.';
+      body.appendChild(p); if (!has) body.appendChild(importPdf(x)); return;
+    }
+    r.forEach(o => { const p = document.createElement(o.h ? 'h3' : 'p'); p.className = o.h ? 'lsh' : 'lsl' + (o.t.startsWith('♪') ? ' lsm' : ''); p.textContent = o.h || o.t; body.appendChild(p); });
+    $('lsNote').textContent = 'Letra lida da sua partitura, na ordem em que você canta. Pode ter pequenos erros: se quiser, toque em “✎ Escrever/colar a letra” para corrigir.';
+  }
+  $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
+  $('lsSmall').onclick = () => { size = Math.max(14, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
+  $('lsEdit').onclick = async () => {
+    const x = SONGS.find(s => s.id === sel); if (!x) return; const ed = $('lsEd');
+    if (!ed.hidden) { ed.hidden = true; return; }
+    let v = typed(x.id);
+    if (!v) { try { const r = await fromPdf(x); if (r) v = r.map(o => o.h ? '\n[' + o.h + ']' : o.t).join('\n').trim(); } catch (e) {} }
+    $('lsTa').value = v; ed.hidden = false; $('lsTa').focus();
+  };
+  $('lsSave').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const v = $('lsTa').value.trim(); try { if (v) localStorage.setItem(keyOf(x.id), v); else localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
+  $('lsClear').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
+  $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { show('eco'); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
+  return { open() { if (!sel) sel = PACK ? PACK.id : (SONGS[0] && SONGS[0].id); chips(); render(); } };
+})();
 
 /* ================= MINI-AULAS ================= */
 const det = new Audio(); det.preload = 'auto'; try { det.preservesPitch = false; det.webkitPreservesPitch = false; det.mozPreservesPitch = false; } catch (e) {}
