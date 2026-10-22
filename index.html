@@ -220,6 +220,12 @@ body.adv .tabs .adv{display:inline-block}
 .gbar i{display:block;height:100%;width:0;background:var(--ok)}
 .lesson h3{font-family:var(--f-display);font-size:19px;margin:0}
 .lesson p{margin:0}
+.nowbox{background:var(--card);border:2px solid var(--red);border-radius:14px;padding:12px 14px;display:grid;gap:4px}
+.nowbox .nowh{font:800 12px var(--f-display);letter-spacing:.08em;color:var(--red)}
+.nowbox b{font:800 19px var(--f-display)}
+.nowbox ol{margin:4px 0 0;padding-left:22px;display:grid;gap:4px;font-size:16px}
+.syncctl{font-size:14px}
+.syncctl .btn{padding:6px 11px;font-size:14px}
 .sessbar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--card);border-top:2px solid var(--red);padding:10px max(16px,env(safe-area-inset-left,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-right,0px));display:grid;gap:8px;box-shadow:0 -6px 20px rgba(0,0,0,.08)}
 .sesstxt{display:grid;gap:2px}
 .sesstxt b{font-family:var(--f-display);font-size:16px}
@@ -250,6 +256,8 @@ body.insess .wrap{padding-bottom:150px}
     <button role="tab" data-v="alcance" aria-selected="false" class="adv">Alcance</button>
     <button id="moreTab" aria-expanded="false">Mais ›</button>
   </nav>
+
+  <div class="nowbox" id="nowBox" hidden></div>
 
   <!-- HOJE -->
   <section class="view" id="v-hoje">
@@ -341,6 +349,7 @@ body.insess .wrap{padding-bottom:150px}
       <div class="row"><span>Velocidade:</span>
         <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Um pouco mais rápido</button></div>
       </div>
+      <div id="tSync"></div>
       <div class="row"><span>Ao tocar numa sílaba:</span>
         <div class="seg" role="group" aria-label="Ao tocar numa sílaba"><button id="mN" aria-pressed="true">Ouvir a nota</button><button id="mL" aria-pressed="false">Recomeçar dali</button></div>
       </div>
@@ -433,6 +442,7 @@ body.insess .wrap{padding-bottom:150px}
       <div class="row" id="fSrcRow" hidden><span>Som:</span><div class="seg" role="group" aria-label="Som"><button id="fProf" aria-pressed="true">🎙 Professor (coral)</button><button id="fPiano" aria-pressed="false">🎹 Só a minha voz</button></div></div>
       <p class="lead" id="fSrcNote" hidden>No áudio do professor você ouve o coral inteiro, na velocidade de verdade. A letra e o quadrado vermelho seguem automaticamente.</p>
       <div class="prog"><i id="fProg"></i></div>
+      <div id="fSync"></div>
     </div>
     <div class="stage">
       <div class="lbl" id="fLbl">Aperte o play</div>
