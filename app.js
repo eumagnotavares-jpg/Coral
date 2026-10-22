@@ -1149,14 +1149,22 @@ const Letras = (() => {
     lines.flat().forEach(e => { e.sp = null; });
     if (!fillLyrics(lines, x.full.meas, map, x.score.boxes)) return null;
     // monta o texto: cada linha da música vira uma linha de texto; partes (blocos) viram títulos
-    const blocks = (x.full.blocks || []).slice(); const out = []; let bi = -1;
+    const blocks = (x.full.blocks || []).slice(); const out = []; let bi = -1, pm = null;
+    const dir = m => { const d = pm == null ? 0 : m - pm; pm = m; return d; };
     lines.forEach(ln => {
       if (!ln.length) return;
       const b0 = ln[0].b; let nb = bi; while (nb + 1 < blocks.length && blocks[nb + 1].start <= b0 + 1e-6) nb++;
       if (nb !== bi) { bi = nb; out.push({ h: blocks[bi].label + (blocks[bi].sub ? ' · ' + blocks[bi].sub : '') }); }
-      let t = '', glue = false, any = false;
-      ln.forEach(e => { const s = e.sp; if (!s || s === '~') return; any = true; t += (t && !glue ? ' ' : '') + s; glue = !!e.hy; });
-      out.push({ t: any ? t : '♪ (só melodia, sem letra)' });
+      let t = '', glue = false, any = false; const words = []; let cw = null, last = null;
+      ln.forEach(e => {
+        const s = e.sp, d = e.m == null ? 0 : dir(e.m);
+        if (s === '~' && last) { last.mv.push(d); last.ms.push(e.m); return; }
+        if (!s || s === '~') { last = null; return; }
+        any = true; t += (t && !glue ? ' ' : '') + s;
+        if (!cw || !glue) { cw = []; words.push(cw); }
+        last = { t: s, mv: [d], ms: [e.m] }; cw.push(last); glue = !!e.hy;
+      });
+      out.push(any ? { t, words } : { t: '♪ (só melodia, sem letra)' });
     });
     // junta linhas iguais seguidas do tipo "só melodia"
     const res = []; out.forEach(o => { const l = res[res.length - 1]; if (o.t && l && l.t === o.t && o.t.startsWith('♪')) return; res.push(o); });
@@ -1201,8 +1209,29 @@ const Letras = (() => {
       p.textContent = has ? 'Não consegui ler a letra desse PDF. Toque em “✎ Escrever/colar a letra” para colocar a letra você mesmo.' : 'Para ver a letra, escolha o PDF da partitura que o professor mandou. Ele fica guardado só neste iPhone. Ou toque em “✎ Escrever/colar a letra”.';
       body.appendChild(p); if (!has) body.appendChild(importPdf(x)); return;
     }
-    r.forEach(o => { const p = document.createElement(o.h ? 'h3' : 'p'); p.className = o.h ? 'lsh' : 'lsl' + (o.t.startsWith('♪') ? ' lsm' : ''); p.textContent = o.h || o.t; body.appendChild(p); });
-    $('lsNote').textContent = 'Letra lida da sua partitura, na ordem em que você canta. Pode ter pequenos erros: se quiser, toque em “✎ Escrever/colar a letra” para corrigir.';
+    const lg = document.createElement('div'); lg.className = 'lslegend';
+    lg.innerHTML = '<span><b class="ar up">↑</b> sobe</span><span><b class="ar up2">⇈</b> sobe muito</span><span><b class="ar dn">↓</b> desce</span><span><b class="ar dn2">⇊</b> desce muito</span><span><b class="ar eq">=</b> mesmo tom</span>';
+    body.appendChild(lg);
+    const tip = document.createElement('p'); tip.className = 'lead'; tip.textContent = 'A seta em cima de cada sílaba compara com a nota anterior. Toque numa sílaba para ouvir a nota dela.'; body.appendChild(tip);
+    const arrow = d => d >= 3 ? ['up2', '⇈'] : d > 0 ? ['up', '↑'] : d <= -3 ? ['dn2', '⇊'] : d < 0 ? ['dn', '↓'] : ['eq', '='];
+    r.forEach(o => {
+      if (o.h || !o.words) { const p = document.createElement(o.h ? 'h3' : 'p'); p.className = o.h ? 'lsh' : 'lsl' + (o.t.startsWith('♪') ? ' lsm' : ''); p.textContent = o.h || o.t; body.appendChild(p); return; }
+      const p = document.createElement('p'); p.className = 'lsl lsp';
+      o.words.forEach((w, wi) => {
+        const ws = document.createElement('span'); ws.className = 'lw';
+        w.forEach(sy => {
+          const b = document.createElement('button'); b.className = 'lsy'; b.type = 'button';
+          const ar = document.createElement('span'); ar.className = 'ars';
+          sy.mv.forEach(d => { const [c, ch] = arrow(d); const i = document.createElement('b'); i.className = 'ar ' + c; i.textContent = ch; ar.appendChild(i); });
+          const tx = document.createElement('span'); tx.className = 'tx'; tx.textContent = sy.t;
+          b.append(ar, tx); b.onclick = () => { if (sy.ms.length > 1) playSeq(sy.ms, 450); else playNote(sy.ms[0]); b.classList.add('ping'); setTimeout(() => b.classList.remove('ping'), 600); };
+          ws.appendChild(b);
+        });
+        p.appendChild(ws); if (wi < o.words.length - 1) p.appendChild(document.createTextNode(' '));
+      });
+      body.appendChild(p);
+    });
+    $('lsNote').textContent = 'Letra lida da sua partitura, na ordem em que você canta. Pode ter pequenos erros: se quiser, toque em “✎ Escrever/colar a letra” para corrigir (a letra escrita por você aparece sem as setas).';
   }
   $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
   $('lsSmall').onclick = () => { size = Math.max(14, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
