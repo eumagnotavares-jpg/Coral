@@ -786,7 +786,17 @@ function renderSongs() {
     row.appendChild(del); li.append(nm, row); ul.appendChild(li);
   });
 }
-['songIn', 'songIn2'].forEach((id, i) => { const el = $(id); if (el) el.onchange = ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f) importSong(f, $(i ? 'songMsg2' : 'songMsg')); }; });
+async function importSongs(files, msgEl) {
+  const ok = [], bad = [];
+  for (const f of files) {
+    try { const j = JSON.parse(await f.text()); if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw 0; await SongDB.put(j); ok.push(j); }
+    catch (e) { bad.push(f.name); }
+  }
+  if (ok.length) { try { if (!PACK) localStorage.setItem('coral-cur', ok[0].id); } catch (e) {} }
+  msgEl.textContent = (ok.length ? ok.length + (ok.length > 1 ? ' músicas importadas ✓' : ' música importada ✓') : '') + (bad.length ? ' · Não reconheci: ' + bad.join(', ') : '') + (ok.length ? ' Abrindo…' : '');
+  if (ok.length) setTimeout(() => location.reload(), 900);
+}
+['songIn', 'songIn2'].forEach((id, i) => { const el = $(id); if (el) { el.multiple = true; el.onchange = ev => { const fs = [...ev.target.files]; ev.target.value = ''; if (fs.length) importSongs(fs, $(i ? 'songMsg2' : 'songMsg')); }; } });
 $('songName').textContent = PACK ? PACK.title : 'sem música';
 $('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. ' + (PACK.guide ? PACK.guide + ' ' : '') + 'O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
 $('noSong').hidden = !!PACK;
@@ -1233,6 +1243,24 @@ const Letras = (() => {
     });
     $('lsNote').textContent = 'Letra lida da sua partitura, na ordem em que você canta. Pode ter pequenos erros: se quiser, toque em “✎ Escrever/colar a letra” para corrigir (a letra escrita por você aparece sem as setas).';
   }
+  const norm = t => (t || '').normalize('NFD').toLowerCase().replace(/[^a-z]/g, '');
+  $('lsPdfs').onchange = async ev => {
+    const fs = [...ev.target.files]; ev.target.value = ''; if (!fs.length) return; const msg = $('lsPdfMsg'); msg.textContent = 'Lendo ' + fs.length + ' PDF(s)…';
+    const lib = await Score.lib(), done = [], miss = [], used = new Set();
+    for (const f of fs) {
+      try {
+        const buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+        const pg = await doc.getPage(1), tc = await pg.getTextContent(), txt = norm(tc.items.map(i => i.str).join('') + ' ' + f.name);
+        let x = SONGS.find(sg => !used.has(sg.id) && txt.includes(norm(sg.title)));
+        if (!x) { const c = SONGS.filter(sg => !used.has(sg.id) && sg.score && sg.score.pages === doc.numPages); if (c.length === 1) x = c[0]; }
+        if (!x || (x.score && x.score.pages !== doc.numPages)) { miss.push(f.name); continue; }
+        used.add(x.id); await SongDB.putPdf({ id: x.id, blob: new Blob([buf], { type: 'application/pdf' }) }); delete cache[x.id]; done.push(x.title);
+        if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
+      } catch (e) { miss.push(f.name); }
+    }
+    msg.textContent = (done.length ? 'Partituras salvas: ' + done.join(', ') + ' ✓' : '') + (miss.length ? (done.length ? ' · ' : '') + 'Não reconheci: ' + miss.join(', ') : '');
+    render();
+  };
   $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
   $('lsSmall').onclick = () => { size = Math.max(14, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
   $('lsEdit').onclick = async () => {

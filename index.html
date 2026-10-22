@@ -282,6 +282,8 @@ body.insess .wrap{padding-bottom:150px}
     <div class="panel">
       <h2>Músicas</h2>
       <div class="row lssongs" id="lsSongs"></div>
+      <div class="row"><label class="file btn"><input type="file" id="lsPdfs" accept="application/pdf,.pdf" multiple>📄 Colocar as partituras (pode marcar todas)</label></div>
+      <p class="lead" id="lsPdfMsg"></p>
     </div>
     <div class="panel">
       <h2 id="lsTitle"></h2>
@@ -310,7 +312,7 @@ body.insess .wrap{padding-bottom:150px}
     <div class="panel alert" id="noSong" hidden>
       <h2>Importe a sua música</h2>
       <p class="msg">A letra e as notas de cada música ficam só no seu aparelho. Toque abaixo e escolha o arquivo de música (.json) que o Claude te mandou. Faça isso uma vez só.</p>
-      <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar música</label><span class="save" id="songMsg"></span></div>
+      <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar músicas (pode marcar as 5)</label><span class="save" id="songMsg"></span></div>
       <p class="lead">Enquanto isso, o afinador, o aquecimento e o teste de alcance já funcionam.</p>
     </div>
     <div class="panel hero" id="todayCard">
