@@ -22,6 +22,7 @@ const SongDB = {
   async putPdf(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('pdfs', 'readwrite'); t.objectStore('pdfs').put(v); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
   async del(id) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').delete(id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
 };
+async function pdfBytes(rec) { if (rec.buf) return new Uint8Array(rec.buf.slice(0)); return new Uint8Array(await rec.blob.arrayBuffer()); }
 let SONGS = []; try { SONGS = await SongDB.all(); } catch (e) {}
 let curId = null; try { curId = localStorage.getItem('coral-cur'); } catch (e) {}
 const PACK = SONGS.find(x => x.id === curId) || SONGS[0] || null;
@@ -187,13 +188,13 @@ const Score = {
   async load() {
     if (!this.has()) return false; if (this.pdf) return true;
     const rec = await SongDB.getPdf(PACK.id); if (!rec) return false;
-    const lib = await this.lib(); this.pdf = await lib.getDocument({ data: new Uint8Array(await rec.blob.arrayBuffer()) }).promise; return true;
+    const lib = await this.lib(); this.pdf = await lib.getDocument({ data: await pdfBytes(rec) }).promise; return true;
   },
   async importFile(f) {
     const lib = await this.lib(); const buf = await f.arrayBuffer();
     const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
     if (doc.numPages !== PACK.score.pages) throw new Error('paginas');
-    await SongDB.putPdf({ id: PACK.id, blob: new Blob([buf], { type: 'application/pdf' }) });
+    await SongDB.putPdf({ id: PACK.id, buf: buf.slice(0) });
     this.pdf = doc; this.pages = {}; document.dispatchEvent(new Event('score-ready'));
   },
   async page(n) {
@@ -792,7 +793,7 @@ async function importSongs(files, msgEl) {
     try { const j = JSON.parse(await f.text());
       if (j.app === 'coral-bundle' && Array.isArray(j.songs)) {
         for (const sg of j.songs) { if (sg.app === 'coral-song' && sg.id) { await SongDB.put(sg); ok.push(sg); } }
-        for (const [id, b64] of Object.entries(j.pdfs || {})) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); await SongDB.putPdf({ id, blob: new Blob([u], { type: 'application/pdf' }) }); }
+        for (const [id, b64] of Object.entries(j.pdfs || {})) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); await SongDB.putPdf({ id, buf: u.buffer }); }
         continue;
       }
       if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw 0; await SongDB.put(j); ok.push(j); }
@@ -1159,7 +1160,7 @@ const Letras = (() => {
     if (cache[x.id]) return cache[x.id];
     if (!x.score || !x.score.boxes || !x.full || !x.full.meas) return null;
     const rec = await SongDB.getPdf(x.id); if (!rec) return null;
-    const lib = await Score.lib(), pdf = await lib.getDocument({ data: new Uint8Array(await rec.blob.arrayBuffer()) }).promise;
+    const lib = await Score.lib(), pdf = await lib.getDocument({ data: await pdfBytes(rec) }).promise;
     const map = await readLyricsFrom(pdf, x.score.boxes);
     const lines = JSON.parse(JSON.stringify(x.full.lines.map(l => l.ev)));
     lines.flat().forEach(e => { e.sp = null; });
@@ -1202,7 +1203,7 @@ const Letras = (() => {
       try {
         const lib = await Score.lib(), buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
         if (x.score && doc.numPages !== x.score.pages) { msg.textContent = 'Esse PDF não parece ser a partitura de ' + x.title + '.'; return; }
-        await SongDB.putPdf({ id: x.id, blob: new Blob([buf], { type: 'application/pdf' }) }); delete cache[x.id];
+        await SongDB.putPdf({ id: x.id, buf: buf.slice(0) }); delete cache[x.id];
         if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
         render();
       } catch (e) { msg.textContent = 'Não consegui abrir esse PDF.'; }
@@ -1216,14 +1217,16 @@ const Letras = (() => {
     $('lsTools').hidden = false; body.innerHTML = '<p class="lead">Lendo a letra da sua partitura…</p>'; $('lsNote').textContent = '';
     const t = typed(x.id);
     if (t) { body.innerHTML = ''; t.split(/\n/).forEach(l => { const p = document.createElement(l.trim() ? 'p' : 'div'); p.className = l.trim() ? 'lsl' : 'lsgap'; p.textContent = l; body.appendChild(p); }); $('lsNote').textContent = 'Letra escrita por você ✓'; return; }
-    let r = null; try { r = await fromPdf(x); } catch (e) {}
+    let r = null, err = ''; try { r = await Promise.race([fromPdf(x), new Promise((_, no) => setTimeout(() => no(new Error('demorou demais para ler o PDF')), 30000))]); } catch (e) { err = (e && (e.name + ': ' + e.message)) || String(e); }
     if (sel !== x.id) return;
     body.innerHTML = '';
     if (!r) {
       const has = await SongDB.getPdf(x.id).catch(() => null);
       const p = document.createElement('p'); p.className = 'msg';
       p.textContent = has ? 'Não consegui ler a letra desse PDF. Toque em “✎ Escrever/colar a letra” para colocar a letra você mesmo.' : 'Para ver a letra, escolha o PDF da partitura que o professor mandou. Ele fica guardado só neste iPhone. Ou toque em “✎ Escrever/colar a letra”.';
-      body.appendChild(p); if (!has) body.appendChild(importPdf(x)); return;
+      body.appendChild(p); if (!has) body.appendChild(importPdf(x));
+      if (err) { const d = document.createElement('p'); d.className = 'lead'; d.textContent = 'Detalhe para o suporte: ' + err.slice(0, 160) + ' · ' + navigator.userAgent.replace(/^.*?OS ([\d_]+).*$/, 'iOS $1'); body.appendChild(d); }
+      return;
     }
     const lg = document.createElement('div'); lg.className = 'lslegend';
     lg.innerHTML = '<span><b class="ar up">↑</b> sobe</span><span><b class="ar up2">⇈</b> sobe muito</span><span><b class="ar dn">↓</b> desce</span><span><b class="ar dn2">⇊</b> desce muito</span><span><b class="ar eq">=</b> mesmo tom</span>';
@@ -1261,7 +1264,7 @@ const Letras = (() => {
         if (x && used.has(x.id)) continue;   // mesmo PDF marcado duas vezes
         if (!x) { const c = SONGS.filter(sg => !used.has(sg.id) && sg.score && sg.score.pages === doc.numPages); if (c.length === 1) x = c[0]; }
         if (!x || (x.score && x.score.pages !== doc.numPages)) { miss.push(f.name); continue; }
-        used.add(x.id); await SongDB.putPdf({ id: x.id, blob: new Blob([buf], { type: 'application/pdf' }) }); delete cache[x.id]; done.push(x.title);
+        used.add(x.id); await SongDB.putPdf({ id: x.id, buf: buf.slice(0) }); delete cache[x.id]; done.push(x.title);
         if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
       } catch (e) { miss.push(f.name); }
     }
