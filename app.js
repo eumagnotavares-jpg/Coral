@@ -193,20 +193,44 @@ function tickSec() {
   if (cur) { const ln = cur.parentElement; if (ln !== lastLine) { lastLine = ln; const r = ln.getBoundingClientRect(); if (r.top < 110 || r.bottom > innerHeight - 40) ln.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' }); } }
   raf = requestAnimationFrame(tickSec);
 }
-SECS.forEach(s => {
-  const rg = rangeOf(s.lines); s.rg = rg;
-  const el = document.createElement('section'); el.className = 'sec'; el.id = 'sec-' + s.id;
-  el.innerHTML = '<div class="sh"><button class="play" aria-label="Tocar">' + PLAY + '</button><div><div class="n"></div><h3></h3></div><div class="count" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="tip"></p><div class="lines"></div>';
-  el.querySelector('.n').textContent = s.id === '0' ? 'Extra' : 'Trecho ' + s.id;
-  el.querySelector('h3').textContent = s.t; el.querySelector('.tip').textContent = s.tip;
-  const box = el.querySelector('.lines'); s.els = []; let prev = null;
+/* letra digitada pela pessoa (fica só no aparelho) */
+const LYR_KEY = 'coral-lyr:' + (PACK ? PACK.id : '');
+let LYR = {}; try { LYR = JSON.parse(localStorage.getItem(LYR_KEY) || '{}'); } catch (e) {}
+SECS.forEach(s => { s.lines.flat().forEach(e => { if (e.s0 === undefined) e.s0 = e.s; }); });
+function tokens(t) { return (t || '').replace(/[,.;:!?"“”]/g, ' ').split(/[\s\-‐–]+/).filter(Boolean); }
+function applyLyrics(s) {
+  const t = LYR[s.id], notes = s.lines.flat();
+  if (!t) { notes.forEach(e => e.s = e.s0); return; }
+  const tk = tokens(t); let last = '';
+  notes.forEach((e, i) => { let w = tk[i]; if (w === undefined) w = '•'; if (w === '_') w = '~'; e.s = w; last = w; });
+}
+function renderSecLines(s) {
+  const box = s.card.querySelector('.lines'); box.innerHTML = ''; s.els = []; let prev = null;
   s.lines.forEach(line => {
-    const r = drawLine(line, rg, { prev, onTap: () => mode === 'nota' }); prev = r.prev;
+    const r = drawLine(line, s.rg, { prev, onTap: () => mode === 'nota' }); prev = r.prev;
     r.ln.addEventListener('click', () => { if (mode === 'linha') startSec(s, line[0].b - 1); });
     box.appendChild(r.ln); s.els.push(...r.els);
   });
+  fit(box);
+}
+SECS.forEach(s => {
+  const rg = rangeOf(s.lines); s.rg = rg; applyLyrics(s);
+  const el = document.createElement('section'); el.className = 'sec'; el.id = 'sec-' + s.id;
+  el.innerHTML = '<div class="sh"><button class="play" aria-label="Tocar">' + PLAY + '</button><div><div class="n"></div><h3></h3></div><div class="count" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="tip"></p><div class="lines"></div>'
+    + '<div class="row"><button class="btn lyrb">✎ ' + (PACK && PACK.noLyrics ? 'Escrever a letra' : 'Editar a letra') + '</button><span class="save lyrn"></span></div>'
+    + '<div class="lyred" hidden><textarea rows="4"></textarea><p class="lead lyrh"></p><div class="row"><button class="btn pri lyrs">Salvar letra</button><button class="btn lyrc">Cancelar</button><button class="btn lyrx">Apagar</button></div></div>';
+  el.querySelector('.n').textContent = s.id === '0' ? 'Extra' : 'Trecho ' + s.id;
+  el.querySelector('h3').textContent = s.t; el.querySelector('.tip').textContent = s.tip;
+  s.card = el; $('secs').appendChild(el); renderSecLines(s);
+  const n = s.lines.flat().length, ed = el.querySelector('.lyred'), ta = el.querySelector('textarea');
+  const count = () => { const k = tokens(ta.value).length; el.querySelector('.lyrh').textContent = 'Escreva as sílabas na ordem, separadas por espaço ou hífen (ex.: can-ta-mos jun-tos). Use _ para continuar a mesma sílaba em outra nota. Este trecho tem ' + n + ' notas; você escreveu ' + k + (k === n ? ' ✓' : '') + '.'; };
+  el.querySelector('.lyrb').onclick = () => { ed.hidden = !ed.hidden; if (!ed.hidden) { ta.value = LYR[s.id] || ''; count(); ta.focus(); } };
+  ta.oninput = count;
+  el.querySelector('.lyrc').onclick = () => { ed.hidden = true; };
+  const save = v => { if (v) LYR[s.id] = v; else delete LYR[s.id]; try { localStorage.setItem(LYR_KEY, JSON.stringify(LYR)); } catch (e) {} applyLyrics(s); renderSecLines(s); ed.hidden = true; el.querySelector('.lyrn').textContent = v ? 'Letra salva ✓' : ''; };
+  el.querySelector('.lyrs').onclick = () => save(ta.value.trim());
+  el.querySelector('.lyrx').onclick = () => save('');
   el.querySelector('.play').onclick = () => { if (active === s) stopSec(); else startSec(s, null); };
-  s.card = el; $('secs').appendChild(el);
 });
 const secById = id => SECS.find(x => x.id === id);
 const secName = id => id === '0' ? 'Introdução' : 'Trecho ' + id;
@@ -621,7 +645,7 @@ function renderSongs() {
 }
 ['songIn', 'songIn2'].forEach((id, i) => { const el = $(id); if (el) el.onchange = ev => { const f = ev.target.files[0]; ev.target.value = ''; if (f) importSong(f, $(i ? 'songMsg2' : 'songMsg')); }; });
 $('songName').textContent = PACK ? PACK.title : 'sem música';
-$('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
+$('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. ' + (PACK.guide ? PACK.guide + ' ' : '') + 'O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
 $('noSong').hidden = !!PACK;
 if (!PACK) ['treinar', 'corrigir', 'ensaio'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
 renderSongs();
