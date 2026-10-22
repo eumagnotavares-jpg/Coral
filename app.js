@@ -1251,7 +1251,8 @@ const Letras = (() => {
       try {
         const buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
         const pg = await doc.getPage(1), tc = await pg.getTextContent(), txt = norm(tc.items.map(i => i.str).join('') + ' ' + f.name);
-        let x = SONGS.find(sg => !used.has(sg.id) && txt.includes(norm(sg.title)));
+        let x = SONGS.find(sg => txt.includes(norm(sg.title)));
+        if (x && used.has(x.id)) continue;   // mesmo PDF marcado duas vezes
         if (!x) { const c = SONGS.filter(sg => !used.has(sg.id) && sg.score && sg.score.pages === doc.numPages); if (c.length === 1) x = c[0]; }
         if (!x || (x.score && x.score.pages !== doc.numPages)) { miss.push(f.name); continue; }
         used.add(x.id); await SongDB.putPdf({ id: x.id, blob: new Blob([buf], { type: 'application/pdf' }) }); delete cache[x.id]; done.push(x.title);
