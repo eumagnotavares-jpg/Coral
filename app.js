@@ -257,7 +257,7 @@ function importer() {
   return d;
 }
 
-if (Score.has()) Score.load().catch(() => {});
+if (Score.has()) Score.load().then(ok => { if (ok) setTimeout(loadScoreLyrics, 0); }).catch(() => {});
 /* ================= AJUSTE DE SINCRONIA ================= */
 Store.d.prefs = Object.assign({ tech: false, adv: false }, Store.d.prefs || {});
 Store.d.prefs.off = Object.assign({ synth: 0, prof: {} }, Store.d.prefs.off || {});
@@ -299,7 +299,7 @@ SECS.forEach(s => { s.lines.flat().forEach(e => { if (e.s0 === undefined) e.s0 =
 function tokens(t) { return (t || '').replace(/[,.;:!?"“”]/g, ' ').split(/[\s\-‐–]+/).filter(Boolean); }
 function applyLyrics(s) {
   const t = LYR[s.id], notes = s.lines.flat();
-  if (!t) { notes.forEach(e => e.s = e.s0); return; }
+  if (!t) { notes.forEach(e => e.s = e.sp || e.s0); return; }
   const tk = tokens(t); let last = '';
   notes.forEach((e, i) => { let w = tk[i]; if (w === undefined) w = '•'; if (w === '_') w = '~'; e.s = w; last = w; });
 }
@@ -664,6 +664,7 @@ function drawRange() {
 /* ================= DIÁRIO ================= */
 const ST = [['nao', 'Ainda não'], ['treino', 'Treinando'], ['firme', 'Firme']];
 function renderDiary() {
+  setTimeout(() => { try { drawEvo(); } catch (e) {} });
   const box = $('dStatus'); box.innerHTML = '';
   SECS.forEach(s => {
     const row = document.createElement('div'); row.className = 'st-row';
@@ -727,6 +728,8 @@ function dayTrecho() { const nf = ORDER.find(id => Store.d.status[id] !== 'firme
 function dayWarm() { const opts = ['brrr', 'mi', 'longa']; return WARM.find(w => w.id === opts[dayIndex() % 3]); }
 function goTo(v, el) { show(v); const tgt = (typeof Sess !== 'undefined' && Sess.on) ? $('nowBox') : el; if (tgt) setTimeout(() => tgt.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }), 60); }
 let DAYSTEPS = [];
+const SHORT_KEYS = ['w:hum', 'jogo', 'eco', 'registrar'];
+function STEPS() { return (typeof Sess !== 'undefined' && Sess.short) ? DAYSTEPS.filter(x => SHORT_KEYS.includes(x.k)) : DAYSTEPS; }
 function renderDay() {
   const d = Day.get(), tid = PACK ? dayTrecho() : null, s = tid ? secById(tid) : null, w2 = dayWarm(), hum = WARM.find(w => w.id === 'hum');
   const firm = SECS.filter(x => Store.d.status[x.id] === 'firme').length;
@@ -825,27 +828,29 @@ const HOW = {
 function paintNow() {
   const nb = $('nowBox'); if (!Sess.on) { nb.hidden = true; return; }
   const i = Sess.idx(); if (i < 0) { nb.hidden = true; return; }
-  const st = DAYSTEPS[i], how = HOW[st.k.startsWith('w:') && st.k !== 'w:hum' ? 'w:hum' : st.k] || [];
-  nb.hidden = false; nb.innerHTML = '<div class="nowh">AGORA · Passo ' + (i + 1) + ' de ' + DAYSTEPS.length + '</div><b></b><ol></ol>';
+  const st = STEPS()[i], how = HOW[st.k.startsWith('w:') && st.k !== 'w:hum' ? 'w:hum' : st.k] || [];
+  nb.hidden = false; nb.innerHTML = '<div class="nowh">AGORA · Passo ' + (i + 1) + ' de ' + STEPS().length + '</div><b></b><ol></ol>';
   nb.querySelector('b').textContent = st.t; const ol = nb.querySelector('ol'); how.forEach(t => { const li = document.createElement('li'); li.textContent = t; ol.appendChild(li); });
 }
 const Sess = {
   on: false,
-  idx() { const d = Day.get(); const i = DAYSTEPS.findIndex(x => !d.done.includes(x.k)); return i; },
-  start() { this.on = true; Day.begin(); document.body.classList.add('insess'); this.paint(); const i = this.idx(); if (i >= 0) DAYSTEPS[i].fn(); },
+  idx() { const d = Day.get(); const i = STEPS().findIndex(x => !d.done.includes(x.k)); return i; },
+  short: false,
+  start(short) { this.short = !!short; this.on = true; Day.begin(); document.body.classList.add('insess'); this.paint(); const i = this.idx(); if (i >= 0) STEPS()[i].fn(); },
   end() { this.on = false; document.body.classList.remove('insess'); $('sessBar').hidden = true; paintNow(); },
   paint() {
     paintNow();
     if (!this.on) { $('sessBar').hidden = true; return; }
     const i = this.idx(); $('sessBar').hidden = false;
     if (i < 0) { $('sessStep').textContent = 'Treino de hoje completo! 🎉'; $('sessTip').textContent = 'Até amanhã. Se quiser, continue praticando à vontade.'; $('sessDo').hidden = true; $('sessNext').textContent = 'Fechar'; return; }
-    const st = DAYSTEPS[i]; $('sessDo').hidden = false; $('sessNext').textContent = 'Próximo ›';
-    $('sessStep').textContent = 'Passo ' + (i + 1) + ' de ' + DAYSTEPS.length + ' · ' + st.t; $('sessTip').textContent = ''; $('sessDo').textContent = st.go;
+    const st = STEPS()[i]; $('sessDo').hidden = false; $('sessNext').textContent = 'Próximo ›';
+    $('sessStep').textContent = 'Passo ' + (i + 1) + ' de ' + STEPS().length + ' · ' + st.t; $('sessTip').textContent = ''; $('sessDo').textContent = st.go;
   }
 };
-$('startDay').onclick = () => Sess.start();
-$('sessDo').onclick = () => { const i = Sess.idx(); if (i >= 0) DAYSTEPS[i].fn(); };
-$('sessNext').onclick = () => { const i = Sess.idx(); if (i < 0) { Sess.end(); show('hoje'); return; } Day.mark(DAYSTEPS[i].k); renderDay(); const j = Sess.idx(); if (j >= 0) DAYSTEPS[j].fn(); else show('hoje'); };
+$('startDay').onclick = () => Sess.start(false);
+$('startShort').onclick = () => Sess.start(true);
+$('sessDo').onclick = () => { const i = Sess.idx(); if (i >= 0) STEPS()[i].fn(); };
+$('sessNext').onclick = () => { const i = Sess.idx(); if (i < 0) { Sess.end(); show('hoje'); return; } Day.mark(STEPS()[i].k); renderDay(); const j = Sess.idx(); if (j >= 0) STEPS()[j].fn(); else show('hoje'); };
 $('sessEnd').onclick = () => Sess.end();
 
 /* ================= ECO: FRASE POR FRASE ================= */
@@ -925,11 +930,11 @@ function gameStop() { G.on = false; G.listen = false; clearInterval(G.timer); G.
 function gRange() { const a = Store.d.alcance || {}; let lo = a.lo != null ? Math.max(45, a.lo) : 47, hi = a.hi != null ? Math.min(62, a.hi - 1) : 57; if (hi - lo < 5) { lo = 47; hi = 57; } return [lo, hi]; }
 function gNext() {
   if (!G.on) return;
-  if (G.n >= 10) return gFinish();
+  if (G.n >= G.total) return gFinish();
   const [lo, hi] = gRange(); let t;
   do { t = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (G.prev != null && (t === G.prev || Math.abs(t - G.prev) > 5));
   G.target = t; G.prev = t; G.hold = 0; G.t0 = performance.now(); G.n++;
-  $('gScore').textContent = 'Nota ' + G.n + ' de 10 · acertos: ' + G.ok;
+  $('gScore').textContent = 'Nota ' + G.n + ' de ' + G.total + ' · acertos: ' + G.ok;
   $('gBig').textContent = '🎵'; $('gSay').textContent = 'Ouça a nota…'; $('gHold').style.width = '0%'; $('v-jogo').querySelector('.gamebox').classList.remove('hit');
   gPlayThenListen();
 }
@@ -951,24 +956,167 @@ function gTick() {
     else { G.hold = Math.max(0, G.hold - 1); $('gBig').textContent = d > 0 ? '▼' : '▲'; $('gSay').textContent = d > 0 ? 'Mais grave (desça a voz)' : 'Mais agudo (suba a voz)'; }
   }
   $('gHold').style.width = Math.min(100, G.hold / 10 * 100) + '%';
-  if (G.hold >= 10) { G.ok++; G.target = null; G.listen = false; Mic.stop(); $('v-jogo').querySelector('.gamebox').classList.add('hit'); $('gBig').textContent = '🎉'; $('gSay').textContent = 'Acertou!'; $('gScore').textContent = 'Nota ' + G.n + ' de 10 · acertos: ' + G.ok; setTimeout(gNext, 1300); }
+  if (G.hold >= 10) { G.ok++; G.target = null; G.listen = false; Mic.stop(); $('v-jogo').querySelector('.gamebox').classList.add('hit'); $('gBig').textContent = '🎉'; $('gSay').textContent = 'Acertou!'; $('gScore').textContent = 'Nota ' + G.n + ' de ' + G.total + ' · acertos: ' + G.ok; setTimeout(gNext, 1300); }
 }
 async function gameStart() {
   stopAll();
   try { await Mic.start(); Mic.stop(); } catch (e) { $('gSay').textContent = micError(e); return; }
-  G.on = true; G.n = 0; G.ok = 0; G.prev = null; $('gStart').textContent = 'Jogando…'; $('gStart').disabled = true; $('gAgain').disabled = false; $('gSkip').disabled = false;
+  G.on = true; G.n = 0; G.ok = 0; G.prev = null; G.total = Sess.on && Sess.short ? 5 : 10; $('gStart').textContent = 'Jogando…'; $('gStart').disabled = true; $('gAgain').disabled = false; $('gSkip').disabled = false;
   clearInterval(G.timer); G.timer = setInterval(gTick, 80); gNext();
 }
 function gFinish() {
-  const ok = G.ok; gameStop();
-  $('gBig').textContent = ok >= 8 ? '🏆' : ok >= 5 ? '👍' : '💪'; $('gSay').textContent = 'Você acertou ' + ok + ' de 10. ' + (ok >= 8 ? 'Excelente!' : ok >= 5 ? 'Bom! Amanhã tem mais.' : 'Faz parte do começo. A prática melhora rápido.');
-  Store.d.games = [{ date: new Date().toISOString(), ok }, ...(Store.d.games || [])].slice(0, 200); Store.save(); Day.mark('jogo'); gHist();
+  const ok = G.ok, tot = G.total || 10, f = ok / tot; gameStop();
+  $('gBig').textContent = f >= 0.8 ? '🏆' : f >= 0.5 ? '👍' : '💪'; $('gSay').textContent = 'Você acertou ' + ok + ' de ' + tot + '. ' + (f >= 0.8 ? 'Excelente!' : f >= 0.5 ? 'Bom! Amanhã tem mais.' : 'Faz parte do começo. A prática melhora rápido.');
+  Store.d.games = [{ date: new Date().toISOString(), ok, total: tot }, ...(Store.d.games || [])].slice(0, 200); Store.save(); Day.mark('jogo'); gHist();
 }
-function gHist() { const L = (Store.d.games || []).slice(0, 7); $('gHist').textContent = L.length ? 'Últimas partidas: ' + L.map(x => x.ok + '/10').join(' · ') : ''; }
+function gHist() { const L = (Store.d.games || []).slice(0, 7); $('gHist').textContent = L.length ? 'Últimas partidas: ' + L.map(x => x.ok + '/' + (x.total || 10)).join(' · ') : ''; }
 $('gStart').onclick = () => gameStart();
 $('gAgain').onclick = () => { if (G.target != null) gPlayThenListen(); };
 $('gSkip').onclick = () => { G.target = null; gNext(); };
 gHist();
+
+/* ================= EVOLUÇÃO E RESUMO ================= */
+function allStores() {
+  const out = [];
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('coral-tenor-v1')) { try { const d = JSON.parse(localStorage.getItem(k)); const id = k.includes(':') ? k.split(':')[1] : 'maracangalha'; out.push({ id, d }); } catch (e) {} } } } catch (e) {}
+  if (!out.length) out.push({ id: PACK ? PACK.id : '', d: Store.d });
+  return out;
+}
+const titleOf = id => (SONGS.find(x => x.id === id) || {}).title || id;
+const dkey = d => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+function drawEvo() {
+  const c = $('evo'); if (!c) return; const ctx = c.getContext('2d'), W = c.width, H = c.height, css = getComputedStyle(document.documentElement);
+  const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(dkey(d)); }
+  const S = allStores(), min = {}, game = {}, tune = {};
+  S.forEach(({ d }) => { (d.log || []).forEach(x => { const k = dkey(x.date); min[k] = (min[k] || 0) + (+x.min || 0); }); (d.games || []).forEach(x => { const k = dkey(x.date), v = x.ok / (x.total || 10) * 100; game[k] = Math.max(game[k] || 0, v); }); (d.results || []).forEach(x => { const k = dkey(x.date); tune[k] = Math.max(tune[k] || 0, x.ok); }); });
+  ctx.clearRect(0, 0, W, H); const L = 64, B = H - 50, T = 20, cw = (W - L - 20) / 14;
+  ctx.font = '22px -apple-system, Arial'; ctx.strokeStyle = css.getPropertyValue('--line'); ctx.lineWidth = 2;
+  [0, 50, 100].forEach(v => { const y = B - (B - T) * v / 100; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - 10, y); ctx.stroke(); ctx.fillStyle = css.getPropertyValue('--muted'); ctx.fillText(v + '%', 4, y + 7); });
+  const maxMin = Math.max(30, ...Object.values(min));
+  days.forEach((k, i) => {
+    const x = L + i * cw; if (min[k]) { ctx.fillStyle = css.getPropertyValue('--silver'); const h = (B - T) * min[k] / maxMin; ctx.fillRect(x + cw * 0.2, B - h, cw * 0.6, h); }
+    if (i % 2 === 1) { ctx.fillStyle = css.getPropertyValue('--muted'); ctx.fillText(k.slice(8) + '/' + k.slice(5, 7), x - 8, H - 14); }
+  });
+  const line = (obj, col) => { ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 4; let pen = false; ctx.beginPath(); days.forEach((k, i) => { if (obj[k] == null) return; const x = L + i * cw + cw / 2, y = B - (B - T) * obj[k] / 100; pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }); ctx.stroke(); days.forEach((k, i) => { if (obj[k] == null) return; const x = L + i * cw + cw / 2, y = B - (B - T) * obj[k] / 100; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); }); };
+  line(game, css.getPropertyValue('--ok')); line(tune, css.getPropertyValue('--red'));
+  const nd = days.filter(k => min[k]).length, tm = days.reduce((a, k) => a + (min[k] || 0), 0);
+  $('evoTxt').textContent = nd ? 'Últimos 14 dias: ' + nd + ' dia(s) de treino, ' + tm + ' minutos.' : 'Os treinos registrados aparecem aqui.';
+}
+function teacherSummary() {
+  const S = allStores(), since = Date.now() - 7 * 864e5, days = new Set(); let mins = 0; const games = [];
+  const lines = ['Resumo do meu treino de canto (tenor) — últimos 7 dias', ''];
+  S.forEach(({ d }) => { (d.log || []).forEach(x => { if (Date.parse(x.date) >= since) { days.add(dkey(x.date)); mins += +x.min || 0; } }); (d.games || []).forEach(x => { if (Date.parse(x.date) >= since) games.push(x.ok / (x.total || 10) * 10); }); });
+  lines.push('• Dias de treino: ' + days.size + ' · Tempo total: ' + mins + ' min');
+  if (games.length) lines.push('• Jogo de afinação (acertar a nota): média ' + (games.reduce((a, b) => a + b, 0) / games.length).toFixed(1).replace('.', ',') + ' de 10, melhor ' + Math.max(...games).toFixed(0) + ' de 10');
+  const Al = Store.d.alcance; if (Al && Al.lo != null && Al.hi != null) lines.push('• Alcance confortável medido: ' + nameOf(Al.lo) + ' a ' + nameOf(Al.hi));
+  lines.push('');
+  S.forEach(({ id, d }) => {
+    const st = d.status || {}, res = (d.results || []).filter(x => Date.parse(x.date) >= since);
+    const firm = Object.entries(st).filter(([, v]) => v === 'firme').map(([k]) => k), tr = Object.entries(st).filter(([, v]) => v === 'treino').map(([k]) => k);
+    if (!firm.length && !tr.length && !res.length) return;
+    lines.push(titleOf(id) + ':');
+    if (firm.length) lines.push('  – Firmes: ' + firm.map(secName).join(', '));
+    if (tr.length) lines.push('  – Ainda treinando: ' + tr.map(secName).join(', '));
+    if (res.length) { const best = {}; res.forEach(r => { best[r.trecho] = Math.max(best[r.trecho] || 0, r.ok); }); const w = Object.entries(best).sort((a, b) => a[1] - b[1]); lines.push('  – Afinação nas gravações: ' + w.map(([k, v]) => secName(k) + ' ' + v + '%').join(', ')); if (w[0] && w[0][1] < 70) lines.push('  – Mais difícil para mim: ' + secName(w[0][0])); }
+  });
+  lines.push('', 'Dúvidas para a aula: ');
+  return lines.join('\n');
+}
+$('sumBtn').onclick = () => { $('sumTxt').value = teacherSummary(); $('sumBox').hidden = false; };
+$('sumCopy').onclick = async () => { try { await navigator.clipboard.writeText($('sumTxt').value); $('sumMsg').textContent = 'Copiado ✓'; } catch (e) { $('sumTxt').select(); $('sumMsg').textContent = 'Texto selecionado: copie pelo menu do iPhone.'; } };
+$('sumShare').onclick = async () => { try { if (navigator.share) { await navigator.share({ text: $('sumTxt').value }); $('sumMsg').textContent = 'Pronto ✓'; } else $('sumCopy').click(); } catch (e) {} };
+
+/* ================= LETRA LIDA DA PARTITURA (no aparelho, a partir do PDF da pessoa) ================= */
+const LYR_SKIP = /^(p|pp|ppp|mp|mf|f|ff|fff|sfz|cresc\.?|crescendo|dim\.?|rubato|fine|fim|coda|total|vezes|vez|falado|última|repete|várias|x|\d+)$/i;
+const HAS_LETTER = /[A-Za-zÀ-ÖØ-öø-ÿ]/;
+async function readScoreLyrics() {
+  if (!Score.pdf || !Score.has()) return null;
+  const B = PACK.score.boxes, chars = {};
+  for (let n = 1; n <= Score.pdf.numPages; n++) {
+    const pg = await Score.pdf.getPage(n), vp = pg.getViewport({ scale: 1 }), tc = await pg.getTextContent(), W = vp.width, H = vp.height;
+    const list = chars[n] = [];
+    tc.items.forEach((it, ii) => {
+      const str = it.str || ''; if (!str.trim() || !HAS_LETTER.test(str) || /[œŒ˙≈∑‰]/.test(str)) return;
+      const x0 = it.transform[4], y = it.transform[5], w = it.width || 0, fs = Math.abs(it.transform[3]) || 10, cw = str.length ? w / str.length : 0;
+      for (let i = 0; i < str.length; i++) list.push({ c: str[i], x: (x0 + cw * (i + 0.5)) / W, y: (H - y) / H, cw: cw / W, fs: fs / H, it: n * 100000 + ii });
+    });
+  }
+  const out = {};
+  Object.entries(B).forEach(([m, b]) => {
+    const h = (b.y1 - b.y0) / 3.05, bot = b.y1 - 1.15 * h;
+    let cs = (chars[b.p] || []).filter(c => c.x >= b.x0 - 0.004 && c.x < b.x1 && c.y > bot + 0.55 * h && c.y < bot + 2.0 * h);
+    if (!cs.length) { out[m] = []; return; }
+    const rows = {}; cs.forEach(c => { const k = Math.round(c.y * 400); rows[k] = (rows[k] || 0) + 1; });
+    const best = +Object.entries(rows).sort((a, b2) => b2[1] - a[1])[0][0]; cs = cs.filter(c => Math.abs(c.y * 400 - best) <= 1.5).sort((a, b2) => a.x - b2.x);
+    const syl = []; let cur = [];
+    const flush = () => { if (!cur.length) return; const t = cur.map(c => c.c).join('').replace(/^[,.;:!?"“”]+|[,.;:!?"“”]+$/g, ''); if (t && HAS_LETTER.test(t) && !LYR_SKIP.test(t)) syl.push({ x: (cur[0].x + cur[cur.length - 1].x) / 2, x0: cur[0].x, x1: cur[cur.length - 1].x, t }); cur = []; };
+    cs.forEach(c => { if (/[\s\-–_‿]/.test(c.c)) { flush(); return; } if (cur.length && (c.it !== cur[cur.length - 1].it || c.x - cur[cur.length - 1].x > Math.max(c.cw, cur[cur.length - 1].cw) * 1.9)) flush(); cur.push(c); });
+    flush(); out[m] = syl;
+  });
+  return out;
+}
+// separação silábica simples do português (para palavras que a partitura juntou)
+function splitPT(w) {
+  const V = 'aeiouáéíóúâêôãõàüAEIOUÁÉÍÓÚÂÊÔÃÕÀÜyY', isV = c => V.includes(c), low = w.toLowerCase();
+  const KEEP = ['ch', 'lh', 'nh', 'qu', 'gu', 'bl', 'br', 'cl', 'cr', 'dr', 'fl', 'fr', 'gl', 'gr', 'pl', 'pr', 'tr', 'vr'];
+  const cuts = []; let i = 0;
+  while (i < w.length && !isV(w[i])) i++;
+  while (i < w.length) {
+    while (i < w.length && isV(w[i])) i++;           // núcleo vocálico (ditongos ficam juntos)
+    let j = i; while (j < w.length && !isV(w[j])) j++;  // consoantes até a próxima vogal
+    if (j >= w.length) break;
+    const cons = low.slice(i, j); let cut;
+    if (cons.length <= 1) cut = i; else if (KEEP.includes(cons.slice(-2))) cut = j - 2; else cut = j - 1;
+    if (cut > 0) cuts.push(cut); i = j;
+  }
+  const out = []; let a = 0; cuts.forEach(c => { if (c > a) { out.push(w.slice(a, c)); a = c; } }); out.push(w.slice(a));
+  return out.filter(Boolean);
+}
+// casa as sílabas de cada compasso com as notas, pela posição (programação dinâmica, em ordem)
+function matchSyl(sy, nx) {
+  sy = sy.slice();
+  if (sy.length < nx.length) {
+    const ex = []; sy.forEach(o => { const ps = o.t.includes(' ') ? [o.t] : splitPT(o.t); if (ps.length < 2) { ex.push(o); return; } const a = o.x0 != null ? o.x0 : o.x, b = o.x1 != null ? o.x1 : o.x; ps.forEach((t, k) => ex.push({ x: a + (b - a) * (k + 0.5) / ps.length, t })); });
+    if (ex.length <= nx.length) sy = ex;
+  }
+  while (sy.length > nx.length && sy.length > 1) { let bi = 0, bd = 1e9; for (let i = 0; i < sy.length - 1; i++) { const d = sy[i + 1].x - sy[i].x; if (d < bd) { bd = d; bi = i; } } sy.splice(bi, 2, { x: (sy[bi].x + sy[bi + 1].x) / 2, t: sy[bi].t + ' ' + sy[bi + 1].t }); }
+  const S = sy.length, N = nx.length, D = [], P = [];
+  for (let i = 0; i <= S; i++) { D.push(new Array(N + 1).fill(1e9)); P.push(new Array(N + 1).fill(0)); }
+  for (let j = 0; j <= N; j++) D[0][j] = 0;
+  for (let i = 1; i <= S; i++) for (let j = 1; j <= N; j++) { const a = D[i - 1][j - 1] + Math.abs(sy[i - 1].x - nx[j - 1]), b = D[i][j - 1]; if (a <= b) { D[i][j] = a; P[i][j] = 1; } else { D[i][j] = b; P[i][j] = 2; } }
+  const res = new Array(N).fill(null); let i = S, j = N;
+  while (i > 0 && j > 0) { if (P[i][j] === 1) { res[j - 1] = sy[i - 1].t; i--; j--; } else j--; }
+  return res;
+}
+function applyScoreLyrics(map) {
+  if (!map) return 0; const B = PACK.score.boxes; let n = 0;
+  const fill = (lines, meas) => {
+    const notes = lines.flat(); let prevHad = false;
+    meas.forEach(([m, b0, b1]) => {
+      const ns = notes.filter(e => e.b >= b0 - 1e-6 && e.b < b1 - 1e-6), box = B[m]; if (!ns.length || !box) return;
+      const w = box.x1 - box.x0, nx = ns.map(e => box.x0 + w * 0.07 + (e.b - b0) / (b1 - b0) * w * 0.88);
+      const r = matchSyl(map[m] || [], nx);
+      ns.forEach((e, k) => { if (r[k]) { e.sp = r[k]; n++; prevHad = true; } else e.sp = prevHad ? '~' : (e.sp || null); });
+    });
+  };
+  SECS.forEach(s => { if (s.meas) fill(s.lines, s.meas); });
+  if (FULL && FULL.meas) fill(FULL.lines.map(l => l.ev), FULL.meas);
+  return n;
+}
+async function loadScoreLyrics() {
+  if (!PACK || !PACK.noLyrics || !Score.has()) return;
+  try {
+    if (!(await Score.load())) return;
+    const map = await readScoreLyrics(), n = applyScoreLyrics(map);
+    if (!n) return;
+    SECS.forEach(s => { applyLyrics(s); if (s.card) renderSecLines(s); });
+    FULL.lines.forEach(l => l.ev.forEach(e => { if (e.sp && !e._typed) e.s = e.sp; }));
+    if (typeof fLineIdx !== 'undefined') fLineIdx = -1;
+    if (view === 'eco' && E.sec) ecoRender();
+    document.querySelectorAll('.lyrn').forEach(x => { if (!x.textContent) x.textContent = 'Letra lida da sua partitura ✓'; });
+  } catch (e) {}
+}
+document.addEventListener('score-ready', loadScoreLyrics);
 
 /* ================= MINI-AULAS ================= */
 const det = new Audio(); det.preload = 'auto'; try { det.preservesPitch = false; det.webkitPreservesPitch = false; det.mozPreservesPitch = false; } catch (e) {}
