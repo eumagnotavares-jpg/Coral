@@ -1187,6 +1187,39 @@ const Letras = (() => {
     const res = []; out.forEach(o => { const l = res[res.length - 1]; if (o.t && l && l.t === o.t && o.t.startsWith('♪')) return; res.push(o); });
     return (cache[x.id] = res);
   }
+  // Usa a letra colada pela pessoa para arrumar espaços/grafia, mantendo as sílabas (e as notas/setas) da partitura.
+  function alignTyped(r, txt) {
+    const lettersOf = str => { const L = [], O = []; const n = str.normalize('NFC'); for (let i = 0; i < n.length; i++) { const b = n[i].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); if (/[a-z]/.test(b)) { L.push(b); O.push(i); } } return { L, O, s: n }; };
+    const U = lettersOf(txt), N = U.L.length, start = new Uint8Array(N);
+    for (let k = 0; k < N; k++) start[k] = (k === 0 || U.O[k] !== U.O[k - 1] + 1) ? 1 : 0;
+    let n = 0;
+    const out = r.map(o => {
+      if (!o.words) return o;
+      const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(Object.assign({}, sy))));
+      const P = [], own = []; syl.forEach((sy, si) => { const l = lettersOf(sy.t).L; l.forEach(c => { P.push(c); own.push(si); }); });
+      const M = P.length; if (!M || !N) return o;
+      // alinhamento semi-global: a linha inteira da partitura dentro de qualquer trecho do texto colado
+      const W = N + 1, D = new Float32Array((M + 1) * W), T = new Uint8Array((M + 1) * W);
+      for (let i = 1; i <= M; i++) { D[i * W] = i; T[i * W] = 2; }
+      for (let i = 1; i <= M; i++) for (let j = 1; j <= N; j++) {
+        const a = D[(i - 1) * W + j - 1] + (P[i - 1] === U.L[j - 1] ? 0 : 1), b = D[(i - 1) * W + j] + 1, c = D[i * W + j - 1] + 1;
+        if (a <= b && a <= c) { D[i * W + j] = a; T[i * W + j] = 1; } else if (b <= c) { D[i * W + j] = b; T[i * W + j] = 2; } else { D[i * W + j] = c; T[i * W + j] = 3; }
+      }
+      let bj = 0, bv = 1e9; for (let j = 0; j <= N; j++) if (D[M * W + j] < bv) { bv = D[M * W + j]; bj = j; }
+      if (bv > Math.max(2, M * 0.3)) return o;   // trecho não encontrado no texto colado: fica como a partitura
+      const map = new Int32Array(M).fill(-1); let i = M, j = bj;
+      while (i > 0) { const t = T[i * W + j]; if (t === 1) { map[i - 1] = j - 1; i--; j--; } else if (t === 2) i--; else if (t === 3) j--; else break; }
+      // novo texto de cada sílaba (grafia do texto colado) e onde começam as palavras
+      const first = syl.map(() => -1), last = syl.map(() => -1);
+      for (let k = 0; k < M; k++) if (map[k] >= 0) { const si = own[k]; if (first[si] < 0) first[si] = map[k]; last[si] = map[k]; }
+      syl.forEach((sy, si) => { if (first[si] < 0) { sy.ws = true; return; } const a = U.O[first[si]], b = U.O[last[si]]; let tx = U.s.slice(a, b + 1).replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').replace(/[-‐–]/g, ''); sy.t = tx.trim() || sy.t; sy.ws = !!start[first[si]]; });
+      const words = []; let cw = null;
+      syl.forEach((sy, si) => { if (!cw || sy.ws) { cw = []; words.push(cw); } cw.push(sy); });
+      n++;
+      return { t: syl.map(sy => (sy.ws ? ' ' : '') + sy.t).join('').trim(), words };
+    });
+    return { r: out, n };
+  }
   function chips() {
     const box = $('lsSongs'); box.innerHTML = '';
     [...SONGS].sort((a, b) => a.title.localeCompare(b.title)).forEach(x => {
@@ -1216,9 +1249,12 @@ const Letras = (() => {
     if (!x) { body.innerHTML = '<p class="lead">Importe as músicas no Diário para ver as letras aqui.</p>'; $('lsTools').hidden = true; return; }
     $('lsTools').hidden = false; body.innerHTML = '<p class="lead">Lendo a letra da sua partitura…</p>'; $('lsNote').textContent = '';
     const t = typed(x.id);
-    if (t) { body.innerHTML = ''; t.split(/\n/).forEach(l => { const p = document.createElement(l.trim() ? 'p' : 'div'); p.className = l.trim() ? 'lsl' : 'lsgap'; p.textContent = l; body.appendChild(p); }); $('lsNote').textContent = 'Letra escrita por você ✓'; return; }
+    const plain = () => { body.innerHTML = ''; t.split(/\n/).forEach(l => { const p = document.createElement(l.trim() ? 'p' : 'div'); p.className = l.trim() ? 'lsl' : 'lsgap'; p.textContent = l; body.appendChild(p); }); $('lsNote').textContent = 'Letra escrita por você ✓ (sem setas: o app não conseguiu ler a partitura).'; };
     let r = null, err = ''; try { r = await Promise.race([fromPdf(x), new Promise((_, no) => setTimeout(() => no(new Error('demorou demais para ler o PDF')), 30000))]); } catch (e) { err = (e && (e.name + ': ' + e.message)) || String(e); }
     if (sel !== x.id) return;
+    let fixed = 0;
+    if (t && r) { const a = alignTyped(r, t); r = a.r; fixed = a.n; }
+    else if (t) { plain(); return; }
     body.innerHTML = '';
     if (!r) {
       const has = await SongDB.getPdf(x.id).catch(() => null);
@@ -1250,7 +1286,7 @@ const Letras = (() => {
       });
       body.appendChild(p);
     });
-    $('lsNote').textContent = 'Letra lida da sua partitura, na ordem em que você canta. Pode ter pequenos erros: se quiser, toque em “✎ Escrever/colar a letra” para corrigir (a letra escrita por você aparece sem as setas).';
+    $('lsNote').textContent = t ? 'Letra corrigida com o texto que você colou ✓ (' + fixed + ' de ' + r.filter(o => o.words).length + ' linhas conferidas). As setas continuam seguindo as notas.' : 'Letra lida da sua partitura, na ordem em que você canta. Pode ter palavras grudadas ou partidas: toque em “✎ Escrever/colar a letra” e cole a letra certa — o app arruma as palavras e mantém as setas.';
   }
   const norm = t => (t || '').normalize('NFD').toLowerCase().replace(/[^a-z]/g, '');
   $('lsPdfs').onchange = async ev => {
@@ -1276,10 +1312,9 @@ const Letras = (() => {
   $('lsEdit').onclick = async () => {
     const x = SONGS.find(s => s.id === sel); if (!x) return; const ed = $('lsEd');
     if (!ed.hidden) { ed.hidden = true; return; }
-    let v = typed(x.id);
-    if (!v) { try { const r = await fromPdf(x); if (r) v = r.map(o => o.h ? '\n[' + o.h + ']' : o.t).join('\n').trim(); } catch (e) {} }
-    $('lsTa').value = v; ed.hidden = false; $('lsTa').focus();
+    $('lsTa').value = typed(x.id); ed.hidden = false; $('lsTa').focus();
   };
+  $('lsFromPdf').onclick = async () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { const r = await fromPdf(x); if (r) $('lsTa').value = r.filter(o => o.words).map(o => o.t).join('\n'); } catch (e) {} };
   $('lsSave').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const v = $('lsTa').value.trim(); try { if (v) localStorage.setItem(keyOf(x.id), v); else localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsClear').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { show('eco'); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
