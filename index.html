@@ -63,6 +63,10 @@ header .song{color:var(--muted);font-weight:600}
 .ocell.oext .otx{color:var(--muted);font-weight:500}
 .ocell.ocont .obar{border-top-right-radius:0;border-bottom-right-radius:0}
 .ocell.oext .obar{border-top-left-radius:0;border-bottom-left-radius:0}
+
+.ocell .olab{font-size:11px;font-weight:700;margin-top:2px;white-space:nowrap}
+.ocell.g-ok .olab{color:var(--ok)} .ocell.g-near .olab{color:var(--near)} .ocell.g-high .olab{color:var(--high)} .ocell.g-low .olab{color:var(--low)} .ocell.g-none .olab{color:var(--muted)} .ocell.g-oct .olab{color:#8A4FD8}
+.earans .btn{flex:1;font-size:17px;padding:14px 8px}
 .ostep3{display:grid;gap:8px;margin:8px 0}
 .ostep3 .btn{width:100%;font-size:17px;padding:14px;text-align:left}
 .osmall{font-size:14px}
@@ -361,7 +365,7 @@ body.insess .wrap{padding-bottom:150px}
         <button class="btn pri" id="lsOpen">Treinar esta música</button>
       </div>
       <div id="lsEd" class="lyred" hidden>
-        <p class="lead">Toque em “Procurar a letra na internet”, abra a letra num site confiável, copie e cole aqui. O app confere cada frase com a partitura (✓ igual, ≠ diferente, ? não encontrada), arruma as palavras e mantém as setas. Não precisa estar na mesma ordem nem com as repetições. Fica salvo só neste iPhone.</p>
+        <p class="lead">Toque em “Procurar a letra na internet”, abra a letra num site confiável, copie e cole aqui. A letra que aparece no app segue SEMPRE a ordem, as repetições e as sílabas da partitura do tenor; o texto colado só serve para conferir e acertar a grafia. Cada frase recebe uma marca: ✓ igual, ≠ diferente (o app mostra as duas versões) ou ? não encontrada no texto colado. Confirme as frases ≠ com o professor. Fica salvo só neste iPhone.</p>
         <textarea id="lsTa" rows="14" aria-label="Letra" placeholder="Cole a letra aqui"></textarea>
         <div class="row"><button class="btn pri" id="lsSave">Salvar</button><button class="btn" id="lsClear">Voltar para a letra da partitura</button><button class="btn" id="lsFromPdf">Trazer a letra da partitura para corrigir à mão</button></div>
       </div>
@@ -420,7 +424,7 @@ body.insess .wrap{padding-bottom:150px}
   <section class="view" id="v-jogo" hidden>
     <div class="panel">
       <h2>Jogo: acerte a nota</h2>
-      <p class="lead">O app toca uma nota. Cante “ô” até a tela ficar verde e segure um pouquinho. São 10 notas. De fone ou num lugar silencioso.</p>
+      <p class="lead">O app toca uma nota. Cante “ô” até a tela ficar verde e segure um pouquinho. De fone ou num lugar silencioso.</p>
       <div class="gamebox">
         <div class="gscore" id="gScore">0 de 10</div>
         <div class="gbig" id="gBig">🎵</div>
@@ -571,13 +575,15 @@ body.insess .wrap{padding-bottom:150px}
     </div>
     <div class="sec" id="breathCard">
       <div class="sh"><button class="play" id="bPlay" aria-label="Começar respiração"></button><div><div class="n">1 · Respiração</div><h3>Inspira, segura, solta “sss”</h3></div></div>
-      <p class="tip">Ombros parados, ar indo para a barriga. 4 ciclos: inspire em 4, segure em 4, solte em “sss” contando 8.</p>
+      <p class="tip">Inspire sem levantar os ombros, deixando as costelas de baixo se abrirem — sem forçar. 4 ciclos: inspire em 4, segure em 4, solte em “sss” contando 8. Se segurar o ar apertar ou deixar tonto, não segure: só inspire e solte.</p>
       <div class="breath"><div class="orb" id="orb"><b id="orbN">4</b></div><div class="st" id="orbT">Pronto?</div></div>
     </div>
     <div id="warm" class="view"></div>
     <div class="panel" id="afCard">
       <h2>Achar a nota (afinação)</h2>
-      <p class="lead">Para saber quando você está no tom. O app toca uma nota; você segura “ô” e a tela mostra se está <b>na nota</b>, <b>meio tom</b> acima ou abaixo (semitonando) ou numa <b>oitava</b> errada. Use fone se puder.</p>
+      <p class="lead">Para saber quando você está no tom. O app toca uma nota; você segura “ô” e a tela escreve se está <b>na nota</b>, <b>um pouco acima ou abaixo</b> ou numa <b>outra oitava</b>. Use fone se puder. Não force: se apertar, pare.</p>
+      <p class="lead"><b>Primeiro, ouça a diferença:</b></p>
+      <div class="row"><button class="btn" id="afExSame">Mesma nota</button><button class="btn" id="afExSemi">Meio tom (semitonar)</button><button class="btn" id="afExOct">Oitava</button></div>
       <div class="afbox wait" id="afBox">
         <div class="afscale"><span>alto</span><span>na nota</span><span>baixo</span><i id="afPtr" hidden></i></div>
         <div class="afbig" id="afBig">Toque em Começar</div>
@@ -586,6 +592,14 @@ body.insess .wrap{padding-bottom:150px}
       <p class="lead" id="afNote"></p>
       <div class="row"><button class="bigbtn" id="afGo">▶ Começar</button><button class="btn" id="afAgain">Ouvir a nota de novo</button></div>
       <p class="msg" id="afMsg"></p>
+    </div>
+    <div class="panel" id="earCard">
+      <h2>Treinar o ouvido</h2>
+      <p class="lead">Antes de cantar, aprenda a perceber. O app toca 2 notas: a 2ª <b>subiu</b>, <b>desceu</b> ou <b>ficou igual</b>? Começa fácil e vai ficando mais difícil. 10 perguntas.</p>
+      <p class="lead" id="earQ"></p>
+      <div class="row earans" id="earAns"><button class="btn" data-a="up" disabled>Subiu</button><button class="btn" data-a="same" disabled>Igual</button><button class="btn" data-a="down" disabled>Desceu</button></div>
+      <div class="row"><button class="bigbtn" id="earGo">▶ Começar</button><button class="btn" id="earAgain">Ouvir de novo</button></div>
+      <p class="msg" id="earMsg"></p>
     </div>
     <div class="panel" id="aqDone" hidden>
       <h2>Voz aquecida</h2>
@@ -610,7 +624,7 @@ body.insess .wrap{padding-bottom:150px}
         <button class="btn pri" id="rYes">Consegui confortável ✓</button>
         <button class="btn" id="rNo">Apertou / não deu ✗</button>
       </div>
-      <p class="msg" id="rMsg">Comece pelo agudo. A primeira nota é tranquila para qualquer voz masculina.</p>
+      <p class="msg" id="rMsg">Comece numa nota confortável. Se apertar, pare e avise o professor.</p>
     </div>
     <div class="panel">
       <h2>Resultado</h2>

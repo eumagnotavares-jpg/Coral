@@ -796,6 +796,39 @@ function afStop(done) { AF.on = false; AF.listen = false; clearInterval(AF.timer
 stoppers.add(() => { if (AF.on) afStop(); });
 $('afGo').onclick = () => { if (AF.on) { afStop(); return; } stopAll(); AF.on = true; AF.i = 0; $('afMsg').textContent = ''; $('afGo').textContent = '■ Parar'; clearInterval(AF.timer); AF.timer = setInterval(afTick, 80); afListen(); };
 $('afAgain').onclick = () => { if (AF.on) afListen(); else noteNow(afTarget() + 12); };
+function afDemo(a, b, txt) { if (AF.on) afStop(); stopAll(); $('afMsg').textContent = txt; noteNow(a + 12); seqT.push(setTimeout(() => noteNow(b + 12), 1300)); }
+$('afExSemi').onclick = () => afDemo(50, 51, 'Meio tom: a 2ª nota é só um pouquinho mais aguda. Parece quase igual — é esse “quase” que o professor chama de semitonar.');
+$('afExOct').onclick = () => afDemo(50, 62, 'Oitava: a 2ª nota é a MESMA nota, só que bem mais aguda (fina). A sua parte de tenor é a 1ª, a mais grave.');
+$('afExSame').onclick = () => afDemo(50, 50, 'Mesma nota: os dois sons têm exatamente a mesma altura. Quando sua voz está assim junto com o app, os sons “se fundem”.');
+/* Treinar o ouvido: o app toca 2 notas e você responde se a 2ª subiu, desceu ou ficou igual. Começa fácil e vai apertando. */
+const EAR = { on: false, n: 0, ok: 0, a: 0, b: 0, ans: null, total: 10, pt: 0, nt: 0 };
+function earStop() { EAR.on = false; clearTimeout(EAR.pt); clearTimeout(EAR.nt); }
+function earRound() {
+  const n = EAR.n, big = n < 4;   // 4 primeiras: diferenças grandes; depois: pequenas (1 ou 2 semitons)
+  const a = 47 + Math.floor(Math.random() * 9), r = Math.random();
+  const step = big ? 4 + Math.floor(Math.random() * 4) : 1 + Math.floor(Math.random() * 2);
+  const b = r < 0.25 ? a : r < 0.62 ? a + step : a - step;
+  EAR.a = a; EAR.b = b; EAR.ans = b > a ? 'up' : b < a ? 'down' : 'same';
+  $('earQ').textContent = 'Pergunta ' + (n + 1) + ' de ' + EAR.total + (big ? '' : ' · agora mais difícil');
+  $('earMsg').textContent = 'Ouça as duas notas…'; earPlay();
+  document.querySelectorAll('#earAns button').forEach(x => x.disabled = false);
+}
+function earPlay() { clearTimeout(EAR.pt); stopAll(); noteNow(EAR.a + 12); EAR.pt = setTimeout(() => noteNow(EAR.b + 12), 1100); }
+document.querySelectorAll('#earAns button').forEach(btn => btn.onclick = () => {
+  if (!EAR.on) return; const g = btn.dataset.a, names = { up: 'SUBIU', down: 'DESCEU', same: 'FICOU IGUAL' };
+  document.querySelectorAll('#earAns button').forEach(x => x.disabled = true);
+  if (g === EAR.ans) { EAR.ok++; $('earMsg').textContent = 'Certo! A 2ª nota ' + names[EAR.ans].toLowerCase() + '.'; }
+  else $('earMsg').textContent = 'Era: ' + names[EAR.ans] + '. Ouça de novo com calma…';
+  if (g !== EAR.ans) EAR.pt = setTimeout(earPlay, 700);
+  EAR.n++;
+  clearTimeout(EAR.nt); EAR.nt = setTimeout(() => {
+    if (!EAR.on) return;
+    if (EAR.n >= EAR.total) { EAR.on = false; $('earGo').textContent = '▶ Começar de novo'; $('earQ').textContent = ''; $('earMsg').textContent = 'Você acertou ' + EAR.ok + ' de ' + EAR.total + '. ' + (EAR.ok >= 8 ? 'Muito bem! Seu ouvido está pegando a diferença.' : 'Faz parte do começo: repita amanhã, o ouvido melhora com a prática.'); return; }
+    earRound();
+  }, g === EAR.ans ? 1300 : 3200);
+});
+$('earGo').onclick = () => { earStop(); stopAll(); EAR.on = true; EAR.n = 0; EAR.ok = 0; $('earGo').textContent = 'Recomeçar'; earRound(); };
+$('earAgain').onclick = () => { if (EAR.on) earPlay(); };
 $('aqAll').onclick = () => {
   if (aqSeq) { aqSeq = false; stopBreath(); stopWarm(); $('aqAll').textContent = '▶ Fazer o aquecimento completo'; return; }
   $('aqDone').hidden = true; aqSeq = true; $('aqAll').textContent = '■ Parar o aquecimento'; startBreath(true); $('breathCard').scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
@@ -1698,7 +1731,7 @@ const Ouvir = (() => {
     try { A.main.playbackRate = rate; A.main.preservesPitch = true; A.main.webkitPreservesPitch = true; } catch (e) {}
     const t = () => { if (my !== run) return; const beat = (A.main.currentTime - offS()) / (60 / bp) - 4; paint(beat); if (beat >= b1) { A.main.pause(); $('oGo').textContent = '2 · Ouvir de novo'; $('oSay').textContent = 'Agora é a sua vez: toque em 3.'; return; } raf = requestAnimationFrame(t); }; t();
   }
-  function clearGrade() { cells.forEach(c => c.el.classList.remove('g-ok', 'g-near', 'g-high', 'g-low', 'g-none')); $('oRes').textContent = ''; }
+  function clearGrade() { cells.forEach(c => { c.el.classList.remove('g-ok', 'g-near', 'g-high', 'g-low', 'g-none', 'g-oct'); const lb = c.el.querySelector('.olab'); if (lb) lb.remove(); }); $('oRes').textContent = ''; }
   async function you() {
     const o = L[i]; if (!o) return; stopAll(); clearGrade(); const my = ++run, spb = 60 / 60 / (slow ? 0.8 : 1);
     $('oYou').textContent = '■ Parar';
@@ -1708,11 +1741,11 @@ const Ouvir = (() => {
     if (useMic) { try { await Mic.start(); } catch (err) { if (my !== run) return; useMic = false; $('oRes').textContent = micError(err); } }
     if (my !== run) { if (!micBusyElsewhere('ouvir')) Mic.stop(); return; }
     // contagem de 4 no tempo da música: a 1ª sílaba entra logo depois do "4"
-    beeps(60 / spb, 4); cells[0] && cells[0].el.classList.add('go');
-    // a gravação começa no "3" (2 tempos antes da entrada) para também pegar quem entra cedo
-    for (const c of ['1', '2', '3', '4']) { if (my !== run) return; if (c === '3' && useMic) Mic.rec = []; $('oSay').textContent = 'Conte comigo: ' + c + (c === '4' ? ' … e ENTRA!' : ''); await new Promise(r => setTimeout(r, spb * 1000)); }
+    // 4 bips de contagem + 1 bip agudo exatamente na entrada: "cante junto com o bip agudo"
+    beeps(60 / spb, 5); cells[0] && cells[0].el.classList.add('go');
+    for (const c of ['1', '2', '3', '4']) { if (my !== run) return; if (c === '3' && useMic) Mic.rec = []; $('oSay').textContent = c + (c === '4' ? ' … no próximo bip agudo: cante!' : ''); await new Promise(r => setTimeout(r, spb * 1000)); }
     if (my !== run) return; cells[0] && cells[0].el.classList.remove('go');
-    $('oSay').textContent = '🎤 ENTRE AGORA — siga a barra'; $('oSay').classList.add('you');
+    $('oSay').textContent = 'AGORA — cante e siga a barra'; $('oSay').classList.add('you');
     const t0 = performance.now(), b0 = o.b0, b1 = o.b1 + (useMic ? 0.6 : 0.3), PRE = 2;
     await new Promise(res => { const t = () => { if (my !== run) return res(); const beat = b0 + (performance.now() - t0) / 1000 / spb; paint(beat); if (beat >= b1) return res(); raf = requestAnimationFrame(t); }; t(); });
     if (my !== run) return;
@@ -1732,13 +1765,14 @@ const Ouvir = (() => {
         const st = g.per.map(pp => pp.status);
         // Tenor cantando uma oitava acima (ou abaixo) da parte: é erro, mesmo que a "nota" pareça a mesma
         const octOff = g.heard >= notes.length * 0.3 ? g.oct : 0;
-        cells.forEach((c, k) => c.el.classList.add(octOff && (st[k] === 'ok' || st[k] === 'near') ? 'g-oct' : 'g-' + st[k]));
+        const LAB = { ok: 'certo', near: 'quase', high: 'alto', low: 'baixo', none: 'não ouvi', oct: 'oitava' };
+        cells.forEach((c, k) => { const s2 = octOff && (st[k] === 'ok' || st[k] === 'near') ? 'oct' : (g.per[k] && g.per[k].octJump ? 'oct' : st[k]); c.el.classList.add('g-' + s2); let lb = c.el.querySelector('.olab'); if (!lb) { lb = document.createElement('span'); lb.className = 'olab'; c.el.appendChild(lb); } lb.textContent = LAB[s2] || ''; });
         const lateMs = on != null ? Math.round((on - exp) * 1000) : 0, low = g.per.filter(pp => pp.status === 'low').length, high = g.per.filter(pp => pp.status === 'high').length;
         let msg;
         if (g.heard < notes.length * 0.3) msg = 'Não ouvi bem sua voz. Cante um pouco mais forte ou mais perto do iPhone.';
         else {
           msg = 'Acertou ' + g.good + ' de ' + g.total + ' notas.';
-          msg += on == null ? ' Não consegui medir a entrada.' : lateMs > 180 ? ' Você entrou atrasado: entre logo depois do “4”.' : lateMs < -180 ? ' Você entrou cedo: espere o “4” terminar.' : ' Entrada na hora certa.';
+          msg += on == null ? ' Não consegui medir a entrada.' : lateMs > 180 ? ' Você entrou atrasado: comece junto com o bip agudo.' : lateMs < -180 ? ' Você entrou cedo: espere o bip agudo.' : ' Entrada na hora certa.';
           if (low > high && low) msg += ' Notas em azul ficaram baixas: pense em “subir”.';
           else if (high > low && high) msg += ' Notas em vermelho ficaram altas: pense em “descer”.';
           if (g.per.some(pp => pp.octJump)) msg += ' Alguma nota saiu numa altura bem diferente (uma oitava): ouça de novo “Uma nota por vez”.';
@@ -1746,7 +1780,7 @@ const Ouvir = (() => {
           if (octOff > 0) msg = 'Você cantou uma OITAVA ACIMA da sua parte (roxo). A melodia está certa, mas a voz foi para cima demais. O tenor canta mais grave: desça a voz até ela ficar parecida com o som do app, mais “grossa”, sem esforço. Treine em Aquecer › Achar a nota.';
           else if (octOff < 0) msg = 'Você cantou uma OITAVA ABAIXO da sua parte (roxo). Suba a voz até ela ficar igual ao som do app.';
         }
-        $('oRes').textContent = msg; $('oSay').textContent = 'Cores: verde certo · amarelo quase · vermelho alto · azul baixo · roxo oitava errada · cinza não ouvi.';
+        $('oRes').textContent = msg + ' (O app mede só a altura e a entrada; técnica e respiração, confira com o professor.)'; $('oSay').textContent = 'Embaixo de cada nota está escrito como ficou.';
       } catch (e) { $('oRes').textContent = 'Não consegui conferir desta vez.'; $('oSay').textContent = ''; }
     } else { $('oSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; }
     $('oYou').textContent = '3 · Cantar de novo';
@@ -1798,7 +1832,7 @@ const LESSONS = [
   { id: 'afinar', t: 'O que é afinar', p: ['Afinar é cantar exatamente a mesma altura do som de referência.', '“Semitonar” é ficar um pouquinho abaixo ou acima. Ouça a diferença: primeiro certo, depois um pouco baixo.'], ex: [['Nota certa', () => playNote(62)], ['A mesma nota, um pouco baixa', () => playDetuned(62, 0.971)], ['Um pouco alta', () => playDetuned(62, 1.03)]] },
   { id: 'oitava', t: 'Oitava', p: ['A mesma nota pode ser cantada mais grave ou mais aguda: isso é uma “oitava”.', 'Homens costumam cantar uma oitava abaixo das mulheres. Por isso o app às vezes diz “você cantou uma oitava acima”.'], ex: [['Lá grave', () => playNote(57)], ['O mesmo Lá, uma oitava acima', () => playNote(69)]] },
   { id: 'tempo', t: 'Tempo e contagem', p: ['A música tem uma “batida” constante, como um relógio. A contagem 1, 2, 3, 4 serve para todos entrarem juntos.', 'Antes de cantar, o app faz 4 cliques: na hora do próximo “1”, você começa.'], ex: [['Contagem devagar', () => beeps(60, 8)], ['Contagem mais rápida', () => beeps(96, 8)]] },
-  { id: 'respirar', t: 'Respirar para cantar', p: ['Puxe o ar pelo nariz, enchendo a barriga, sem levantar os ombros.', 'Solte o ar devagar enquanto canta. Respire nas vírgulas vermelhas das frases.'], ex: [['Fazer a respiração guiada', () => { goTo('aquecer', $('breathCard')); startBreath(); }]] },
+  { id: 'respirar', t: 'Respirar para cantar', p: ['Inspire sem levantar os ombros, deixando as costelas de baixo se abrirem. Não force.', 'Solte o ar devagar enquanto canta. Os lugares de respirar na música quem indica é o professor.'], ex: [['Fazer a respiração guiada', () => { goTo('aquecer', $('breathCard')); startBreath(); }]] },
   { id: 'fone', t: 'Fone e microfone', p: ['Use fone de ouvido quando o app for te ouvir (jogo, eco com microfone e gravação). Sem fone, o som do app entra no microfone e confunde a análise.', 'Cante perto do celular, num lugar sem barulho.'], ex: [] },
   { id: 'partitura', t: 'Como seguir a partitura no app', p: ['Você não precisa ler as notas. Olhe só a linha de palavras embaixo da pauta.', 'O quadrado vermelho mostra onde a música está. Siga o quadrado e cante as palavras que estão embaixo dele.'], ex: [] }
 ];
