@@ -307,6 +307,22 @@ canvas#evo{width:100%;height:auto;border-radius:10px;background:var(--bg);border
 body.insess .wrap{padding-bottom:150px}
 @media (max-width:420px){.tiles b{font-size:22px}}
 @media (prefers-reduced-motion:reduce){.syl .t,.orb,.key,.meter .needle{transition:none}.recdot{animation:none}}
+
+/* letras e botões maiores */
+body{font-size:17px}
+.lead{font-size:16px}
+.btn{font-size:16.5px;padding:11px 17px;min-height:46px}
+.seg button{font-size:15.5px;padding:10px 14px}
+.tabs button{font-size:16px;padding:10px 14px}
+.ebig{font-size:24px}
+.ocell .otx{font-size:28px}
+.ostep3 .btn{font-size:19px;padding:16px 18px}
+/* progresso e velocidades do Ouvir */
+.oprog{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:6px 0 2px} .oprog i{display:block;height:100%;width:0;background:var(--ok)}
+.oprogrow{align-items:center;gap:8px} .oprogrow .btn{font-size:14px;padding:7px 12px;min-height:0}
+.ospd{display:flex;flex-wrap:nowrap;width:100%} .ospd button{flex:1;padding:10px 4px;font-size:15px}
+.aqparts{margin:10px 0 6px} .aqparts button{font-size:16px;padding:11px 14px}
+details.fsyncd{margin-top:10px} details.fsyncd summary{cursor:pointer;color:var(--muted);font-size:15px;padding:6px 0}
 </style>
 </head>
 <body>
@@ -332,6 +348,8 @@ body.insess .wrap{padding-bottom:150px}
       <div class="row orowtop"><select id="oSong" aria-label="Música"></select><button class="btn" id="oLetra">Letra completa</button></div>
       <h2 id="oPart"></h2>
       <p class="lead" id="oNum"></p>
+      <div class="oprog"><i id="oProgBar"></i></div>
+      <div class="row oprogrow"><span class="lead" id="oProg"></span><button class="btn" id="oTodo">Próxima frase que falta</button><button class="btn" id="oProgReset">Zerar progresso</button></div>
       <p class="msg" id="oNoLyr" hidden>Sem letra ainda: coloque o PDF da partitura em Mais › Letra. Por enquanto aparecem só as notas (•).</p>
       <div class="obox" id="oBox"></div>
       <p class="olegend">Sílaba mais alta na tela = nota mais aguda. A barra embaixo = quanto tempo segurar. Tracejado = pausa (não cante).</p>
@@ -341,7 +359,10 @@ body.insess .wrap{padding-bottom:150px}
         <button class="btn pri" id="oGo">2 · Ouvir a frase</button>
         <button class="btn pri" id="oYou">3 · Agora eu canto</button>
       </div>
-      <div class="row osmall"><button class="btn" id="oSlow" aria-pressed="false">Devagar</button><label class="chk"><input type="checkbox" id="oMic" checked> O app me escuta e corrige</label></div>
+      <div class="row"><button class="btn" id="oMine" hidden>Ouvir como eu cantei (e depois o certo)</button></div>
+      <div class="row osmall"><div class="seg ospd" role="group" aria-label="Velocidade" id="oSpd"><button data-s="devagar" aria-pressed="false">Lento</button><button data-s="treino" aria-pressed="true">Treino</button><button data-s="p70" aria-pressed="false">70%</button><button data-s="p85" aria-pressed="false">85%</button><button data-s="p100" aria-pressed="false">100%</button></div></div>
+      <p class="lead" id="oSpdCap"></p>
+      <div class="row osmall"><label class="chk"><input type="checkbox" id="oMic" checked> O app me escuta e corrige</label></div>
       <p class="msg" id="oRes"></p>
       <div class="row"><button class="btn" id="oPrev">◀ Frase anterior</button><button class="btn" id="oNext">Próxima frase ▶</button></div>
     </div>
@@ -540,22 +561,22 @@ body.insess .wrap{padding-bottom:150px}
   <section class="view" id="v-ensaio" hidden>
     <div class="panel">
       <h2>Ensaio completo</h2>
-      <p class="lead">A música inteira na ordem do coral, com as repetições. A ordem é a minha leitura da partitura: confirme com o professor.</p>
+      <p class="lead">A música inteira, na ordem da partitura (com as repetições, D.S. e coda).</p>
       <div class="row">
         <button class="play" id="fPlay" aria-label="Tocar ensaio completo"></button>
         <div class="seg" role="group" aria-label="Velocidade"><button class="v60" aria-pressed="true">Devagar</button><button class="v80" aria-pressed="false">Mais rápido</button></div>
         <div class="count" id="fCount" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       </div>
-      <div class="row" id="fSrcRow" hidden><span>Som:</span><div class="seg" role="group" aria-label="Som"><button id="fProf" aria-pressed="true">🎙 Professor (coral)</button><button id="fPiano" aria-pressed="false">🎹 Só a minha voz</button></div></div>
+      <div class="row" id="fSrcRow" hidden><span>Som:</span><div class="seg" role="group" aria-label="Som"><button id="fProf" aria-pressed="true">Professor (coral)</button><button id="fPiano" aria-pressed="false">Só a minha voz (piano)</button></div></div>
       <p class="lead" id="fSrcNote" hidden>No áudio do professor você ouve o coral inteiro, na velocidade de verdade. A letra e o quadrado vermelho seguem automaticamente.</p>
       <div class="prog"><i id="fProg"></i></div>
-      <div id="fSync"></div>
+      <details class="fsyncd"><summary>Letra fora do tempo? Ajustar</summary><div id="fSync"></div></details>
     </div>
     <div class="stage">
-      <div class="lbl" id="fLbl">Aperte o play</div>
+      <div class="lbl" id="fLbl">Toque no ▶ para começar</div>
       <div class="lines big" id="fNow"></div>
       <div class="lines nx" id="fNext"></div>
-      <div class="row" id="fScoreP" hidden><button class="btn" id="fScoreB">📄 Ver partitura</button></div>
+      <div class="row" id="fScoreP" hidden><button class="btn" id="fScoreB">Ver partitura</button></div>
       <div id="fScore" hidden></div>
     </div>
     <div class="panel">
@@ -569,7 +590,12 @@ body.insess .wrap{padding-bottom:150px}
   <section class="view" id="v-aquecer" hidden>
     <div class="panel">
       <h2>Aquecer antes de cantar</h2>
-      <p class="lead">Uns 5 minutos, sempre antes de treinar as músicas. A voz deve sair leve: se arranhar ou apertar, pare aquela repetição e só ouça.</p>
+      <div class="seg aqparts" role="group" aria-label="Partes do aquecimento" id="aqParts"><button data-p="voz" aria-pressed="true">1 · Voz</button><button data-p="ouvido" aria-pressed="false">2 · Ouvido</button><button data-p="afina" aria-pressed="false">3 · Afinação</button></div>
+      <p class="lead" id="aqPartLead"></p>
+    </div>
+    <div data-part="voz">
+    <div class="panel">
+      <p class="lead">A voz deve sair leve: se arranhar ou apertar, pare aquela repetição e só ouça.</p>
       <button class="bigbtn" id="aqAll">▶ Fazer o aquecimento completo</button>
       <p class="lead">Ou toque no ▶ de cada exercício para fazer só ele.</p>
     </div>
@@ -579,6 +605,24 @@ body.insess .wrap{padding-bottom:150px}
       <div class="breath"><div class="orb" id="orb"><b id="orbN">4</b></div><div class="st" id="orbT">Pronto?</div></div>
     </div>
     <div id="warm" class="view"></div>
+    <div class="panel" id="aqDone" hidden>
+      <h2>Voz aquecida</h2>
+      <p class="msg">Pronto! Agora treine o ouvido.</p>
+      <button class="bigbtn" id="aqGo">Próximo: 2 · Ouvido</button>
+    </div>
+    </div>
+    <div data-part="ouvido" hidden>
+    <div class="panel" id="earCard">
+      <h2>Treinar o ouvido</h2>
+      <p class="lead">Antes de cantar, aprenda a perceber. O app toca 2 notas: a 2ª <b>subiu</b>, <b>desceu</b> ou <b>ficou igual</b>? Começa fácil e vai ficando mais difícil. 10 perguntas.</p>
+      <p class="lead" id="earQ"></p>
+      <div class="row earans" id="earAns"><button class="btn" data-a="up" disabled>Subiu</button><button class="btn" data-a="same" disabled>Igual</button><button class="btn" data-a="down" disabled>Desceu</button></div>
+      <div class="row"><button class="bigbtn" id="earGo">▶ Começar</button><button class="btn" id="earAgain">Ouvir de novo</button></div>
+      <p class="msg" id="earMsg"></p>
+      <button class="bigbtn" id="earNext" hidden>Próximo: 3 · Afinação</button>
+    </div>
+    </div>
+    <div data-part="afina" hidden>
     <div class="panel" id="afCard">
       <h2>Achar a nota (afinação)</h2>
       <p class="lead">Para saber quando você está no tom. O app toca uma nota; você segura “ô” e a tela escreve se está <b>na nota</b>, <b>um pouco acima ou abaixo</b> ou numa <b>outra oitava</b>. Use fone se puder. Não force: se apertar, pare.</p>
@@ -592,19 +636,8 @@ body.insess .wrap{padding-bottom:150px}
       <p class="lead" id="afNote"></p>
       <div class="row"><button class="bigbtn" id="afGo">▶ Começar</button><button class="btn" id="afAgain">Ouvir a nota de novo</button></div>
       <p class="msg" id="afMsg"></p>
+      <button class="bigbtn" id="afNext" hidden>Agora as músicas: Ouvir</button>
     </div>
-    <div class="panel" id="earCard">
-      <h2>Treinar o ouvido</h2>
-      <p class="lead">Antes de cantar, aprenda a perceber. O app toca 2 notas: a 2ª <b>subiu</b>, <b>desceu</b> ou <b>ficou igual</b>? Começa fácil e vai ficando mais difícil. 10 perguntas.</p>
-      <p class="lead" id="earQ"></p>
-      <div class="row earans" id="earAns"><button class="btn" data-a="up" disabled>Subiu</button><button class="btn" data-a="same" disabled>Igual</button><button class="btn" data-a="down" disabled>Desceu</button></div>
-      <div class="row"><button class="bigbtn" id="earGo">▶ Começar</button><button class="btn" id="earAgain">Ouvir de novo</button></div>
-      <p class="msg" id="earMsg"></p>
-    </div>
-    <div class="panel" id="aqDone" hidden>
-      <h2>Voz aquecida</h2>
-      <p class="msg">Pronto! Agora vamos para a música.</p>
-      <button class="bigbtn" id="aqGo">▶ Ir para Ouvir</button>
     </div>
   </section>
 

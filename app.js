@@ -40,8 +40,8 @@ const SongDB = {
 // Todas as chaves deste app no aparelho começam com "coral-". Por música: progresso, letra por trecho e letra colada.
 const LS = {
   storeKey: id => 'coral-tenor-v1' + (id && id !== 'maracangalha' ? ':' + id : ''),
-  songKeys: id => [LS.storeKey(id), 'coral-lyr:' + id, 'coral-letra:' + id, 'coral-ouvir:' + id],
-  idOfKey(k) { if (k === 'coral-tenor-v1') return 'maracangalha'; const m = /^coral-(?:tenor-v1|lyr|letra|ouvir):(.+)$/.exec(k); return m ? m[1] : null; },
+  songKeys: id => [LS.storeKey(id), 'coral-lyr:' + id, 'coral-letra:' + id, 'coral-ouvir:' + id, 'coral-prog:' + id],
+  idOfKey(k) { if (k === 'coral-tenor-v1') return 'maracangalha'; const m = /^coral-(?:tenor-v1|lyr|letra|ouvir|prog):(.+)$/.exec(k); return m ? m[1] : null; },
   all() { const o = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('coral-')) o[k] = localStorage.getItem(k); } } catch (e) {} return o; }
 };
 const isNum = v => typeof v === 'number' && isFinite(v);
@@ -473,7 +473,7 @@ SECS.forEach(s => {
   el.querySelector('.lyrx').onclick = () => save('');
   el.querySelector('.play').onclick = () => { if (active === s) stopSec(); else startSec(s, null); };
   const scb = el.querySelector('.scb');
-  if (scb) scb.onclick = () => { const bx = el.querySelector('.scorebox'); bx.hidden = !bx.hidden; scb.textContent = bx.hidden ? '📄 Ver partitura' : '📄 Esconder partitura'; if (!bx.hidden && !s.score) s.score = ScoreView(bx, s.meas, 'all'); };
+  if (scb) scb.onclick = () => { const bx = el.querySelector('.scorebox'); bx.hidden = !bx.hidden; scb.textContent = bx.hidden ? 'Ver partitura' : 'Esconder partitura'; if (!bx.hidden && !s.score) s.score = ScoreView(bx, s.meas, 'all'); };
 });
 document.addEventListener('score-ready', () => { SECS.forEach(s => { if (s.score) { const bx = s.card.querySelector('.scorebox'); s.score = ScoreView(bx, s.meas, 'all'); } }); if (fScore) fScore = ScoreView($('fScore'), FULL.meas, 'current'); });
 const secById = id => SECS.find(x => x.id === id);
@@ -670,7 +670,7 @@ $('cAgain').onclick = () => { $('cOut').hidden = true; $('cRec').click(); };
 const fp = $('fPlay'); fp.innerHTML = PLAY; let fOn = false, fRaf = 0, fLineIdx = -1;
 let fScore = null;
 if (FULL && FULL.lines && FULL.lines.length) $('fSync').appendChild(syncCtl(document.createElement('div'), () => fSrc));
-if (Score.has() && FULL.meas) { setTimeout(() => { if ($('fScore').hidden) $('fScoreB').click(); }, 0); $('fScoreP').hidden = false; $('fScoreB').onclick = () => { const b = $('fScore'); b.hidden = !b.hidden; $('fScoreB').textContent = b.hidden ? '📄 Ver partitura' : '📄 Esconder partitura'; if (!b.hidden && !fScore) { fScore = ScoreView(b, FULL.meas, 'current'); fScore.ready.then(() => fScore.highlight(0)); } }; }
+if (Score.has() && FULL.meas) { setTimeout(() => { if ($('fScore').hidden) $('fScoreB').click(); }, 0); $('fScoreP').hidden = false; $('fScoreB').onclick = () => { const b = $('fScore'); b.hidden = !b.hidden; $('fScoreB').textContent = b.hidden ? 'Ver partitura' : 'Esconder partitura'; if (!b.hidden && !fScore) { fScore = ScoreView(b, FULL.meas, 'current'); fScore.ready.then(() => fScore.highlight(0)); } }; }
 const FL = FULL.lines.map(l => ({ ...l, rg: rangeOf([l.ev]) }));
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function stopFull() { if (!fOn) return; fOn = false; if (A.owner === 'full') stopMain(); fp.innerHTML = PLAY; cancelAnimationFrame(fRaf); $('fCount').querySelectorAll('i').forEach(d => d.classList.remove('hit')); }
@@ -788,7 +788,7 @@ function afTick() {
   $('afHold').style.width = Math.min(100, AF.hold / 18 * 100) + '%';
   if (AF.hold >= 18) {   // ~1,5 s na nota
     AF.listen = false; if (!micBusyElsewhere('af')) Mic.stop(); afPaint('ok', 'Acertou!'); AF.i++;
-    if (AF.i >= AF_NOTES.length) { $('afMsg').textContent = 'Muito bem! Você achou as ' + AF_NOTES.length + ' notas.'; afStop(true); return; }
+    if (AF.i >= AF_NOTES.length) { $('afMsg').textContent = 'Muito bem! Você achou as ' + AF_NOTES.length + ' notas.'; afStop(true); $('afNext').hidden = false; return; }
     setTimeout(() => { if (AF.on) afListen(); }, 1200);
   } else if (performance.now() - AF.t0 > 20000) { AF.listen = false; if (!micBusyElsewhere('af')) Mic.stop(); $('afMsg').textContent = 'Tudo bem. Ouça de novo com calma e tente deslizar a voz até a nota.'; setTimeout(() => { if (AF.on) afListen(); }, 1500); }
 }
@@ -823,17 +823,28 @@ document.querySelectorAll('#earAns button').forEach(btn => btn.onclick = () => {
   EAR.n++;
   clearTimeout(EAR.nt); EAR.nt = setTimeout(() => {
     if (!EAR.on) return;
-    if (EAR.n >= EAR.total) { EAR.on = false; $('earGo').textContent = '▶ Começar de novo'; $('earQ').textContent = ''; $('earMsg').textContent = 'Você acertou ' + EAR.ok + ' de ' + EAR.total + '. ' + (EAR.ok >= 8 ? 'Muito bem! Seu ouvido está pegando a diferença.' : 'Faz parte do começo: repita amanhã, o ouvido melhora com a prática.'); return; }
+    if (EAR.n >= EAR.total) { EAR.on = false; $('earGo').textContent = '▶ Começar de novo'; $('earQ').textContent = ''; $('earMsg').textContent = 'Você acertou ' + EAR.ok + ' de ' + EAR.total + '. ' + (EAR.ok >= 8 ? 'Muito bem! Seu ouvido está pegando a diferença.' : 'Faz parte do começo: repita amanhã, o ouvido melhora com a prática.'); $('earNext').hidden = false; return; }
     earRound();
   }, g === EAR.ans ? 1300 : 3200);
 });
-$('earGo').onclick = () => { earStop(); stopAll(); EAR.on = true; EAR.n = 0; EAR.ok = 0; $('earGo').textContent = 'Recomeçar'; earRound(); };
+$('earGo').onclick = () => { earStop(); stopAll(); $('earNext').hidden = true; EAR.on = true; EAR.n = 0; EAR.ok = 0; $('earGo').textContent = 'Recomeçar'; earRound(); };
 $('earAgain').onclick = () => { if (EAR.on) earPlay(); };
+function aqPart(pt) {
+  aqSeq = false; stopBreath(); stopWarm(); if (AF.on) afStop(); earStop(); stopAll();
+  document.querySelectorAll('#v-aquecer [data-part]').forEach(el => el.hidden = el.dataset.part !== pt);
+  $('aqParts').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === pt));
+  $('aqPartLead').textContent = { voz: 'Respiração e exercícios leves para acordar a voz. Uns 5 minutos.', ouvido: 'Perceber se a nota sobe, desce ou fica igual, antes de cantar.', afina: 'Cantar uma nota e ver se você está no tom.' }[pt];
+  window.scrollTo(0, 0);
+}
+$('aqParts').querySelectorAll('button').forEach(b => b.onclick = () => aqPart(b.dataset.p));
+$('aqGo').onclick = () => aqPart('ouvido');
+$('earNext').onclick = () => aqPart('afina');
+$('afNext').onclick = () => show('ouvir');
+aqPart('voz');
 $('aqAll').onclick = () => {
   if (aqSeq) { aqSeq = false; stopBreath(); stopWarm(); $('aqAll').textContent = '▶ Fazer o aquecimento completo'; return; }
   $('aqDone').hidden = true; aqSeq = true; $('aqAll').textContent = '■ Parar o aquecimento'; startBreath(true); $('breathCard').scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
 };
-$('aqGo').onclick = () => show('ouvir');
 $('ajLetra').onclick = () => show('musicas');
 function tickWarm() {
   if (!wActive) return; const w = wActive, t = A.main.currentTime; let i = w.tl.findIndex(r => t < r.e); if (i < 0) i = w.tl.length - 1; const r = w.tl[i];
@@ -1674,9 +1685,36 @@ const Letras = (() => {
   return { lines, open() { if (!sel) sel = PACK ? PACK.id : (SONGS[0] && SONGS[0].id); chips(); render(); } };
 })();
 
+// grava a sua voz (pedaços do microfone) num arquivo WAV para ouvir de novo
+function toWav(chunks, sr, startSec) {
+  let n = 0; chunks.forEach(c => n += c.length); const all = new Float32Array(n); let o = 0; chunks.forEach(c => { all.set(c, o); o += c.length; });
+  const x = all.subarray(Math.min(all.length, Math.floor(startSec * sr))); let pk = 0; for (let k = 0; k < x.length; k++) pk = Math.max(pk, Math.abs(x[k]));
+  const g = pk > 0.01 ? Math.min(8, 0.9 / pk) : 1, buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
+  const w = (p0, str) => { for (let k = 0; k < str.length; k++) v.setUint8(p0 + k, str.charCodeAt(k)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, x.length * 2, true);
+  for (let k = 0; k < x.length; k++) v.setInt16(44 + k * 2, Math.max(-1, Math.min(1, x[k] * g)) * 32767, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
 /* ================= OUVIR: frase por frase, com setas (altura) e barras (tempo) ================= */
 const Ouvir = (() => {
-  let L = [], i = 0, slow = false, run = 0, raf = 0, cells = [], loaded = false, noLyr = false;
+  let L = [], i = 0, run = 0, raf = 0, cells = [], loaded = false, noLyr = false, spd = 'treino', take = null;
+  const mine = new Audio(); mine.preload = 'auto';
+  // andamento real da música, tirado do áudio do professor (batidas por minuto)
+  const REAL = (() => { try { const mp = PACK && PACK.prof && PACK.prof.map; if (!mp || mp.length < 3) return null; const sl = [];
+    for (let k = 1; k < mp.length; k++) { const dt = mp[k][0] - mp[k - 1][0], db = mp[k][1] - mp[k - 1][1]; if (dt > 0.05 && db > 0) sl.push(db / dt * 60); }
+    sl.sort((a, b) => a - b); const v = sl[sl.length >> 1]; return v > 40 && v < 260 ? Math.round(v) : null; } catch (e) { return null; } })();
+  const tgt = () => spd === 'devagar' ? 48 : spd === 'treino' || !REAL ? 60 : Math.round(REAL * { p70: 0.7, p85: 0.85, p100: 1 }[spd]);
+  // progresso: frases que você já cantou certinho (notas e entrada)
+  const keyP = () => 'coral-prog:' + (PACK ? PACK.id : '');
+  const prog = () => { try { return new Set(JSON.parse(localStorage.getItem(keyP()) || '[]')); } catch (e) { return new Set(); } };
+  const saveProg = st => { try { localStorage.setItem(keyP(), JSON.stringify([...st])); } catch (e) {} };
+  function paintProg() {
+    const st = prog(), n = L.filter(o => st.has(o.li)).length, o = L[i];
+    $('oProg').textContent = 'Dominadas: ' + n + ' de ' + L.length + ' frases' + (o && st.has(o.li) ? ' · esta frase você já domina ✓' : '');
+    $('oProgBar').style.width = (L.length ? n / L.length * 100 : 0) + '%';
+    $('oTodo').hidden = n === L.length || !L.length;
+  }
   const keyI = () => 'coral-ouvir:' + (PACK ? PACK.id : '');
   const arrow = d => d >= 3 ? ['up2', '⇈'] : d > 0 ? ['up', '↑'] : d <= -3 ? ['dn2', '⇊'] : d < 0 ? ['dn', '↓'] : ['eq', '='];
   async function load() {
@@ -1690,7 +1728,7 @@ const Ouvir = (() => {
   function render() {
     stop(); const o = L[i]; if (!o) return; $('oBox').scrollLeft = 0; $('oRes').textContent = '';
     try { localStorage.setItem(keyI(), i); } catch (e) {}
-    $('oPart').textContent = o.part || ''; $('oNum').textContent = 'Frase ' + (i + 1) + ' de ' + L.length;
+    $('oPart').textContent = o.part || ''; $('oNum').textContent = 'Frase ' + (i + 1) + ' de ' + L.length; paintProg(); take = null; $('oMine').hidden = true;
     $('oPrev').disabled = i === 0; $('oNext').disabled = i >= L.length - 1;
     const box = $('oBox'); box.innerHTML = ''; cells = [];
     const syl = []; o.words.forEach((w, wi) => w.forEach((sy, k) => syl.push({ sy, hy: k < w.length - 1 })));
@@ -1723,17 +1761,17 @@ const Ouvir = (() => {
   function paint(beat) {
     cells.forEach(c => { const on = beat >= c.b && beat < c.end; if (on && !c.el.classList.contains('on')) { const bx = $('oBox'); if (c.el.offsetLeft + c.el.offsetWidth > bx.scrollLeft + bx.clientWidth - 20 || c.el.offsetLeft < bx.scrollLeft) bx.scrollTo({ left: Math.max(0, c.el.offsetLeft - 30), behavior: reduce ? 'auto' : 'smooth' }); } c.el.classList.toggle('on', on); c.el.classList.toggle('done', beat >= c.end); c.fill.style.width = (beat <= c.b ? 0 : Math.min(100, (beat - c.b) / (c.end - c.b) * 100)) + '%'; });
   }
-  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); if (Mic.rec && !micBusyElsewhere('ouvir')) { Mic.rec = null; } if (Mic.on && !micBusyElsewhere('ouvir')) Mic.stop(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '2 · Ouvir a frase'; $('oYou').textContent = '3 · Agora eu canto'; $('oStep').textContent = '1 · Notas uma a uma'; stopNotes(); $('oSay').classList.remove('you'); }
+  function stop() { run++; cancelAnimationFrame(raf); try { mine.pause(); } catch (e) {} if (A.owner === 'ouvir') stopMain(); if (Mic.rec && !micBusyElsewhere('ouvir')) { Mic.rec = null; } if (Mic.on && !micBusyElsewhere('ouvir')) Mic.stop(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '2 · Ouvir a frase'; $('oYou').textContent = '3 · Agora eu canto'; $('oStep').textContent = '1 · Notas uma a uma'; stopNotes(); $('oSay').classList.remove('you'); }
   function listen() {
-    const o = L[i]; if (!o) return; stopAll(); const my = ++run, bp = 60, rate = slow ? 0.8 : 1, b0 = o.b0 - 0.5, b1 = o.b1 + 0.2;
-    $('oGo').textContent = '■ Parar'; $('oSay').textContent = slow ? 'Ouça (devagar)…' : 'Ouça…';
-    playMain(FULL.a[60], Math.max(0, (4 + b0) * (60 / bp) + offS()), 'ouvir', null);
+    const o = L[i]; if (!o) return; stopAll(); const T = tgt(), bp = T > 70 && FULL.a[80] ? 80 : 60, my = ++run, rate = T / bp, b0 = o.b0 - 0.5, b1 = o.b1 + 0.2;
+    $('oGo').textContent = '■ Parar'; $('oSay').textContent = 'Ouça… (' + T + ' batidas por minuto)';
+    playMain(FULL.a[bp], Math.max(0, (4 + b0) * (60 / bp) + offS()), 'ouvir', null);
     try { A.main.playbackRate = rate; A.main.preservesPitch = true; A.main.webkitPreservesPitch = true; } catch (e) {}
     const t = () => { if (my !== run) return; const beat = (A.main.currentTime - offS()) / (60 / bp) - 4; paint(beat); if (beat >= b1) { A.main.pause(); $('oGo').textContent = '2 · Ouvir de novo'; $('oSay').textContent = 'Agora é a sua vez: toque em 3.'; return; } raf = requestAnimationFrame(t); }; t();
   }
   function clearGrade() { cells.forEach(c => { c.el.classList.remove('g-ok', 'g-near', 'g-high', 'g-low', 'g-none', 'g-oct'); const lb = c.el.querySelector('.olab'); if (lb) lb.remove(); }); $('oRes').textContent = ''; }
   async function you() {
-    const o = L[i]; if (!o) return; stopAll(); clearGrade(); const my = ++run, spb = 60 / 60 / (slow ? 0.8 : 1);
+    const o = L[i]; if (!o) return; stopAll(); clearGrade(); take = null; $('oMine').hidden = true; const my = ++run, spb = 60 / tgt();
     $('oYou').textContent = '■ Parar';
     playNote(o.words[0][0].ms[0], true);   // nota de entrada (antes de ligar o microfone, para sair no alto-falante)
     $('oSay').textContent = 'Nota de entrada…'; await new Promise(r => setTimeout(r, 1300)); if (my !== run) return;
@@ -1753,6 +1791,7 @@ const Ouvir = (() => {
     if (useMic) {
       const chunks = Mic.rec || []; Mic.rec = null; const sr = Mic.ctx ? Mic.ctx.sampleRate : 48000; if (!micBusyElsewhere('ouvir')) Mic.stop();
       $('oSay').textContent = 'Conferindo…';
+      try { take = URL.createObjectURL(toWav(chunks, sr, Math.max(0, (PRE - 0.4) * spb))); $('oMine').hidden = false; } catch (e) { take = null; }
       try {
         const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(sy)));
         const notes = [], own = []; syl.forEach((sy, k) => sy.nb.forEach(n => { notes.push({ m: n.m - 12, b: n.b - b0, d: n.d }); own.push(k); }));
@@ -1776,7 +1815,7 @@ const Ouvir = (() => {
           if (low > high && low) msg += ' Notas em azul ficaram baixas: pense em “subir”.';
           else if (high > low && high) msg += ' Notas em vermelho ficaram altas: pense em “descer”.';
           if (g.per.some(pp => pp.octJump)) msg += ' Alguma nota saiu numa altura bem diferente (uma oitava): ouça de novo “Uma nota por vez”.';
-          if (g.good === g.total && Math.abs(lateMs) <= 180) msg = 'Perfeito! Notas e entrada certas. Pode ir para a próxima frase.';
+          if (g.good === g.total && Math.abs(lateMs) <= 180 && !octOff) { msg = 'Perfeito! Notas e entrada certas. Frase marcada como dominada. Pode ir para a próxima.'; const stp = prog(); stp.add(o.li); saveProg(stp); paintProg(); }
           if (octOff > 0) msg = 'Você cantou uma OITAVA ACIMA da sua parte (roxo). A melodia está certa, mas a voz foi para cima demais. O tenor canta mais grave: desça a voz até ela ficar parecida com o som do app, mais “grossa”, sem esforço. Treine em Aquecer › Achar a nota.';
           else if (octOff < 0) msg = 'Você cantou uma OITAVA ABAIXO da sua parte (roxo). Suba a voz até ela ficar igual ao som do app.';
         }
@@ -1787,7 +1826,7 @@ const Ouvir = (() => {
   }
   // uma nota por vez, devagar, dizendo se sobe, desce ou fica: para ouvir e entender a altura de cada sílaba
   async function steps() {
-    const o = L[i]; if (!o) return; stopAll(); const my = ++run, gap = slow ? 1400 : 1000;
+    const o = L[i]; if (!o) return; stopAll(); const my = ++run, gap = tgt() <= 50 ? 1400 : 1000;
     $('oStep').textContent = '■ Parar';
     const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(sy)));
     let ci = 0;
@@ -1811,7 +1850,18 @@ const Ouvir = (() => {
   $('oYou').onclick = () => { if ($('oYou').textContent.startsWith('■')) { stop(); return; } you(); };
   $('oPrev').onclick = () => { if (i > 0) { i--; render(); } };
   $('oNext').onclick = () => { if (i < L.length - 1) { i++; render(); } };
-  $('oSlow').onclick = () => { slow = !slow; $('oSlow').setAttribute('aria-pressed', slow); };
+  // velocidades: Bem devagar · Treino (60) · 70% · 85% · 100% do andamento real
+  if (!REAL) $('oSpd').querySelectorAll('[data-s^="p"]').forEach(b => b.hidden = true);
+  const capSpd = () => { $('oSpdCap').textContent = REAL ? 'Andamento real desta música: ' + REAL + ' batidas por minuto. Agora: ' + tgt() + '.' : 'Agora: ' + tgt() + ' batidas por minuto.'; };
+  $('oSpd').querySelectorAll('button').forEach(b => b.onclick = () => { stop(); spd = b.dataset.s; $('oSpd').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); capSpd(); });
+  capSpd();
+  $('oMine').onclick = () => {
+    if (!take) return; stop(); const my = ++run;
+    $('oSay').textContent = 'Você cantou assim…'; mine.src = take; mine.currentTime = 0; const pp = mine.play(); pp && pp.catch(() => {});
+    mine.onended = () => { if (my !== run) return; $('oSay').textContent = 'Agora o som certo…'; setTimeout(() => { if (my === run) listen(); }, 500); };
+  };
+  $('oTodo').onclick = () => { const st = prog(); let k = L.findIndex((o, j) => j > i && !st.has(o.li)); if (k < 0) k = L.findIndex(o => !st.has(o.li)); if (k >= 0) { i = k; render(); } };
+  $('oProgReset').onclick = () => { if ($('oProgReset').dataset.ok) { saveProg(new Set()); paintProg(); $('oProgReset').textContent = 'Zerar progresso'; delete $('oProgReset').dataset.ok; } else { $('oProgReset').dataset.ok = 1; $('oProgReset').textContent = 'Toque de novo para zerar'; } };
   $('oMic').onchange = e => { try { localStorage.setItem('coral-omic', e.target.checked ? '1' : '0'); } catch (x) {} };
   try { $('oMic').checked = localStorage.getItem('coral-omic') !== '0'; } catch (x) {}
   $('oLetra').onclick = () => show('musicas');
