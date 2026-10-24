@@ -55,6 +55,8 @@ header .song{color:var(--muted);font-weight:600}
 .ocell{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;background:none;border:0;padding:4px 2px;font:inherit;color:inherit;cursor:pointer;border-radius:8px;flex:none}
 .ocell .ars{font-size:15px;line-height:1;min-height:15px;letter-spacing:-.05em}
 .ocell .otx{font:600 22px var(--f-body);line-height:1.1;white-space:nowrap}
+.ocell.go{outline:3px solid var(--red);animation:opulse .5s ease-in-out infinite alternate}@keyframes opulse{from{transform:scale(1)}to{transform:scale(1.06)}}@media (prefers-reduced-motion:reduce){.ocell.go{animation:none}}
+.osteps{margin:6px 0 10px;padding-left:20px;font-size:14px;color:var(--muted)} .osteps li{margin:2px 0}
 .ocell.on{background:var(--red-soft)} .ocell.on .otx{color:var(--red)} .ocell.done .otx{color:var(--muted)}
 .obar{position:relative;display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden}
 .obar i{background:var(--silver);border-radius:3px;display:block}
@@ -288,20 +290,12 @@ body.insess .wrap{padding-bottom:150px}
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Seções">
+    <button role="tab" data-v="aquecer" aria-selected="false">Aquecer</button>
     <button role="tab" data-v="ouvir" aria-selected="true">Ouvir</button>
     <button role="tab" data-v="eco" aria-selected="false">Cantar</button>
     <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
-    <button role="tab" data-v="hoje" aria-selected="false" class="adv">Hoje</button>
-    <button role="tab" data-v="musicas" aria-selected="false" class="adv">Letra</button>
-    <button role="tab" data-v="jogo" aria-selected="false" class="adv">Jogo</button>
-    <button role="tab" data-v="aulas" aria-selected="false" class="adv">Aulas</button>
-    <button role="tab" data-v="corrigir" aria-selected="false" class="adv">Corrigir</button>
-    <button role="tab" data-v="diario" aria-selected="false" class="adv">Diário</button>
-    <button role="tab" data-v="treinar" aria-selected="false" class="adv">Trechos</button>
-    <button role="tab" data-v="afinador" aria-selected="false" class="adv">Afinador</button>
-    <button role="tab" data-v="aquecer" aria-selected="false" class="adv">Aquecer</button>
-    <button role="tab" data-v="alcance" aria-selected="false" class="adv">Alcance</button>
-    <button id="moreTab" aria-expanded="false">Mais ›</button>
+    <button role="tab" data-v="diario" aria-selected="false" aria-label="Ajustes">⚙</button>
+    <button id="moreTab" aria-expanded="false" hidden>Mais ›</button>
   </nav>
 
   <div class="nowbox" id="nowBox" hidden></div>
@@ -316,7 +310,9 @@ body.insess .wrap{padding-bottom:150px}
       <div class="obox" id="oBox"></div>
       <div class="olegend"><span><b class="ar up">↑</b> sobe</span><span><b class="ar up2">⇈</b> sobe muito</span><span><b class="ar dn">↓</b> desce</span><span><b class="ar dn2">⇊</b> desce muito</span><span><b class="ar eq">=</b> mesma nota</span><span><i class="olg-bar"></i> quanto tempo segurar</span><span><i class="olg-rest"></i> pausa (não cante)</span></div>
       <div class="ebig" id="oSay">&nbsp;</div>
-      <div class="row"><button class="btn pri bigbtn" id="oGo">▶ Ouvir a frase</button><button class="btn" id="oSlow" aria-pressed="false">🐢 Devagar</button></div>
+      <ol class="osteps"><li><b>Uma nota por vez:</b> ouça cada nota e se ela sobe, desce ou fica.</li><li><b>Ouvir a frase:</b> agora no ritmo, vendo a barra encher.</li><li><b>Agora eu canto:</b> conte 1, 2, 3, 4 com o app e entre logo depois do 4.</li></ol>
+      <div class="row"><button class="btn" id="oStep">🎹 Uma nota por vez</button><button class="btn" id="oSlow" aria-pressed="false">🐢 Devagar</button></div>
+      <div class="row"><button class="btn pri bigbtn" id="oGo">▶ Ouvir a frase</button></div>
       <div class="row"><button class="btn pri" id="oYou">🎤 Agora eu canto</button></div>
       <div class="row"><button class="btn" id="oPrev">◀ Frase anterior</button><button class="btn" id="oNext">Próxima frase ▶</button></div>
     </div>
@@ -351,16 +347,6 @@ body.insess .wrap{padding-bottom:150px}
 
   <!-- HOJE -->
   <section class="view" id="v-hoje">
-    <div class="panel alert" id="install" hidden>
-      <h2>Instale o app</h2>
-      <p class="msg">No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta ⬆) e depois em <b>Adicionar à Tela de Início</b>. Ele passa a abrir como app e funciona sem internet.</p>
-    </div>
-    <div class="panel alert" id="noSong" hidden>
-      <h2>Importe a sua música</h2>
-      <p class="msg">A letra e as notas de cada música ficam só no seu aparelho. Toque abaixo e escolha o arquivo de música (.json) que o Claude te mandou. Faça isso uma vez só.</p>
-      <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar músicas (pode marcar as 5)</label><span class="save" id="songMsg"></span></div>
-      <p class="lead">Enquanto isso, o afinador, o aquecimento e o teste de alcance já funcionam.</p>
-    </div>
     <div class="panel hero" id="todayCard">
       <div class="lead" id="todaySong"></div>
       <button class="bigbtn" id="startDay">▶ Começar o treino de hoje</button>
@@ -553,8 +539,10 @@ body.insess .wrap{padding-bottom:150px}
   <!-- AQUECER -->
   <section class="view" id="v-aquecer" hidden>
     <div class="panel">
-      <h2>Antes de cantar</h2>
-      <p class="lead">De 5 a 8 minutos, na ordem. A voz deve sair leve: se arranhar ou apertar, pare aquela repetição e só ouça.</p>
+      <h2>Aquecer antes de cantar</h2>
+      <p class="lead">Uns 5 minutos, sempre antes de treinar as músicas. A voz deve sair leve: se arranhar ou apertar, pare aquela repetição e só ouça.</p>
+      <button class="bigbtn" id="aqAll">▶ Fazer o aquecimento completo</button>
+      <p class="lead">Ou toque no ▶ de cada exercício para fazer só ele.</p>
     </div>
     <div class="sec" id="breathCard">
       <div class="sh"><button class="play" id="bPlay" aria-label="Começar respiração"></button><div><div class="n">1 · Respiração</div><h3>Inspira, segura, solta “sss”</h3></div></div>
@@ -562,6 +550,11 @@ body.insess .wrap{padding-bottom:150px}
       <div class="breath"><div class="orb" id="orb"><b id="orbN">4</b></div><div class="st" id="orbT">Pronto?</div></div>
     </div>
     <div id="warm" class="view"></div>
+    <div class="panel" id="aqDone" hidden>
+      <h2>Voz aquecida</h2>
+      <p class="msg">Pronto! Agora vamos para a música.</p>
+      <button class="bigbtn" id="aqGo">▶ Ir para Ouvir</button>
+    </div>
   </section>
 
   <!-- ALCANCE -->
@@ -592,6 +585,19 @@ body.insess .wrap{padding-bottom:150px}
 
   <!-- DIÁRIO -->
   <section class="view" id="v-diario" hidden>
+    <div class="panel alert" id="install" hidden>
+      <h2>Instale o app</h2>
+      <p class="msg">No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta ⬆) e depois em <b>Adicionar à Tela de Início</b>. Ele passa a abrir como app e funciona sem internet.</p>
+    </div>
+    <div class="panel alert" id="noSong" hidden>
+      <h2>Importe a sua música</h2>
+      <p class="msg">A letra e as notas de cada música ficam só no seu aparelho. Toque abaixo e escolha o arquivo de música (.json) que o Claude te mandou. Faça isso uma vez só.</p>
+      <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar músicas (pode marcar as 5)</label><span class="save" id="songMsg"></span></div>
+      <p class="lead">Enquanto isso, o aquecimento já funciona.</p>
+    </div>
+    <div class="panel"><h2>Ajustes</h2><p class="lead">Músicas, partituras, letra e backup. Os treinos ficam em Aquecer, Ouvir, Cantar e Ensaio.</p>
+      <div class="row"><button class="btn pri" id="ajLetra">Letra e partituras</button></div></div>
+    <div class="aj-old" hidden>
     <div class="panel"><h2>Resumo</h2><p class="msg" id="dSum">Nenhum treino registrado ainda.</p></div>
     <div class="panel">
       <h2>Minha evolução</h2>
@@ -617,6 +623,7 @@ body.insess .wrap{padding-bottom:150px}
       <h2>Preferências</h2>
       <label class="chk"><input type="checkbox" id="prefTech"> Mostrar detalhes técnicos (nomes das notas e números)</label>
       <label class="chk"><input type="checkbox" id="prefAdv"> Mostrar sempre as ferramentas avançadas (Trechos, Afinador, Aquecer, Alcance)</label>
+    </div>
     </div>
     <div class="panel">
       <h2>Músicas neste aparelho</h2>

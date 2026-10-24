@@ -245,8 +245,11 @@ function karaoke(els, beat) { let cur = null; els.forEach(({ e, el }) => { const
 /* ================= Abas ================= */
 const VIEWS = ['ouvir','hoje','musicas','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
 let view = 'hoje';
+// Telas que saíram do app (o foco agora é só aquecer e aprender as músicas): quem chamar uma delas cai no Ouvir.
+const GONE = ['hoje', 'jogo', 'aulas', 'corrigir', 'treinar', 'afinador', 'alcance'];
 function show(v) {
-  if (!VIEWS.includes(v)) v = 'hoje';
+  if (!VIEWS.includes(v) || GONE.includes(v)) v = PACK ? 'ouvir' : 'diario';
+  if (view === 'aquecer' && v !== 'aquecer') { aqSeq = false; stopBreath(); stopWarm(); }
   if (view === 'afinador' && v !== 'afinador') tunerOff();
   if (view === 'alcance' && v !== 'alcance') rMicOff();
   if (view === 'eco' && v !== 'eco') ecoStop();
@@ -254,7 +257,6 @@ function show(v) {
   if (view === 'corrigir' && v !== 'corrigir') stopRec(false);
   if (view === 'ouvir' && v !== 'ouvir') Ouvir.stop();
   if (v === 'eco' && PACK && !E.sec && SECS.length) { E.sec = secById(firstSec()) || SECS[0]; E.li = 0; document.querySelectorAll('#eSecs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === E.sec.id)); setTimeout(ecoRender, 0); }
-  if (!['ouvir', 'eco', 'ensaio'].includes(v)) document.body.classList.add('adv');
   view = v;
   document.querySelectorAll('.tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.v === v); if (b.dataset.v === v) b.scrollIntoView({ inline: 'center', block: 'nearest' }); });
   VIEWS.forEach(x => $('v-' + x).hidden = x !== v);
@@ -716,31 +718,45 @@ function tickFull() {
 }
 
 /* ================= AQUECER ================= */
-let bT = null;
+let bT = null, aqSeq = false;
+const aqMark = () => { try { localStorage.setItem('coral-aq', cycleKey()); } catch (e) {} };
 function stopBreath() { if (!bT) return; clearInterval(bT); bT = null; $('bPlay').innerHTML = PLAY; $('orb').style.transform = 'scale(.7)'; $('orbT').textContent = 'Pronto?'; $('orbN').textContent = '4'; }
 stoppers.add(stopBreath);
 $('bPlay').innerHTML = PLAY;
-function startBreath() {
-  stopAll(); const plan = []; for (let c = 1; c <= 4; c++) { plan.push(['Inspire', 4, c]); plan.push(['Segure', 4, c]); plan.push(['Solte em “sss”', 8, c]); }
+function startBreath(keepSeq) {
+  if (!keepSeq) aqSeq = false; stopAll(); aqMark(); const plan = []; for (let c = 1; c <= 4; c++) { plan.push(['Inspire', 4, c]); plan.push(['Segure', 4, c]); plan.push(['Solte em “sss”', 8, c]); }
   let pi = 0, left = plan[0][1]; $('bPlay').innerHTML = PAUSE;
   const paint = () => { const [t, n, c] = plan[pi]; $('orbT').textContent = t + ' · ciclo ' + c + ' de 4'; $('orbN').textContent = left; $('orb').style.transform = 'scale(' + (t === 'Inspire' ? 0.7 + 0.3 * (n - left + 1) / n : t === 'Segure' ? 1 : 1 - 0.3 * (n - left + 1) / n) + ')'; };
-  paint(); bT = setInterval(() => { left--; if (left <= 0) { pi++; if (pi >= plan.length) { stopBreath(); $('orbT').textContent = 'Pronto! Siga para o próximo.'; Day.mark('resp'); return; } left = plan[pi][1]; } paint(); }, 1000);
+  paint(); bT = setInterval(() => { left--; if (left <= 0) { pi++; if (pi >= plan.length) { stopBreath(); $('orbT').textContent = 'Pronto! Siga para o próximo.'; Day.mark('resp'); if (aqSeq && WARM[0]) setTimeout(() => { if (aqSeq) { startWarm(WARM[0], true); WARM[0].card.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }); } }, 1500); return; } left = plan[pi][1]; } paint(); }, 1000);
 }
-$('bPlay').onclick = () => bT ? stopBreath() : startBreath();
+$('bPlay').onclick = () => { if (bT) { aqSeq = false; stopBreath(); } else startBreath(); };
 let wActive = null, wRaf = 0;
 function stopWarm() { if (!wActive) return; const w = wActive; if (A.owner === 'warm') stopMain(); w.btn.innerHTML = PLAY; cancelAnimationFrame(wRaf); w.stat.textContent = ''; w.stat.classList.remove('warn'); wActive = null; }
 stoppers.add(stopWarm);
-function startWarm(w) {
-  stopAll(); wActive = w; playMain(w.a, 0, 'warm', () => { stopWarm(); w.stat.textContent = 'Feito ✓'; Day.mark('w:' + w.id); }); w.btn.innerHTML = PAUSE; tickWarm();
+function startWarm(w, keepSeq) {
+  if (!keepSeq) aqSeq = false; stopAll(); aqMark(); wActive = w;
+  playMain(w.a, 0, 'warm', () => {
+    stopWarm(); w.stat.textContent = 'Feito ✓'; Day.mark('w:' + w.id);
+    if (!aqSeq) return; const k = WARM.indexOf(w);
+    if (k < WARM.length - 1) setTimeout(() => { if (aqSeq) { startWarm(WARM[k + 1], true); WARM[k + 1].card.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }); } }, 1500);
+    else { aqSeq = false; $('aqDone').hidden = false; $('aqDone').scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' }); $('aqAll').textContent = '▶ Fazer o aquecimento completo'; }
+  });
+  w.btn.innerHTML = PAUSE; tickWarm();
 }
 WARM.forEach((w, i) => {
   const el = document.createElement('section'); el.className = 'sec'; el.id = 'warm-' + w.id;
   el.innerHTML = '<div class="sh"><button class="play" aria-label="Tocar exercício">' + PLAY + '</button><div><div class="n"></div><h3></h3></div></div><p class="tip"></p><div class="wstat"></div>';
   el.querySelector('.n').textContent = (i + 2) + ' · Aquecimento'; el.querySelector('h3').textContent = w.t; el.querySelector('.tip').textContent = w.how;
   w.btn = el.querySelector('.play'); w.stat = el.querySelector('.wstat'); w.card = el;
-  w.btn.onclick = () => wActive === w ? stopWarm() : startWarm(w);
+  w.btn.onclick = () => { if (wActive === w) { aqSeq = false; stopWarm(); } else startWarm(w); };
   $('warm').appendChild(el);
 });
+$('aqAll').onclick = () => {
+  if (aqSeq) { aqSeq = false; stopBreath(); stopWarm(); $('aqAll').textContent = '▶ Fazer o aquecimento completo'; return; }
+  $('aqDone').hidden = true; aqSeq = true; $('aqAll').textContent = '■ Parar o aquecimento'; startBreath(true); $('breathCard').scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+};
+$('aqGo').onclick = () => show('ouvir');
+$('ajLetra').onclick = () => show('musicas');
 function tickWarm() {
   if (!wActive) return; const w = wActive, t = A.main.currentTime; let i = w.tl.findIndex(r => t < r.e); if (i < 0) i = w.tl.length - 1; const r = w.tl[i];
   const hi = Store.d.alcance && Store.d.alcance.hi, top = r.top - 12, over = hi != null && top > hi;
@@ -1023,7 +1039,7 @@ async function importSongs(files, msgEl) {
 $('songName').textContent = PACK ? PACK.title : 'sem música';
 $('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. ' + (PACK.guide ? PACK.guide + ' ' : '') + 'O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
 $('noSong').hidden = !!PACK;
-if (!PACK) ['treinar', 'corrigir', 'ensaio', 'eco', 'ouvir'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
+if (!PACK) ['ensaio', 'eco', 'ouvir'].forEach(v => { const t = document.querySelector('.tabs button[data-v="' + v + '"]'); if (t) t.hidden = true; });
 renderSongs();
 
 
@@ -1625,7 +1641,7 @@ const Ouvir = (() => {
   function paint(beat) {
     cells.forEach(c => { const on = beat >= c.b && beat < c.end; if (on && !c.el.classList.contains('on')) { const bx = $('oBox'); if (c.el.offsetLeft + c.el.offsetWidth > bx.scrollLeft + bx.clientWidth - 20 || c.el.offsetLeft < bx.scrollLeft) bx.scrollTo({ left: Math.max(0, c.el.offsetLeft - 30), behavior: reduce ? 'auto' : 'smooth' }); } c.el.classList.toggle('on', on); c.el.classList.toggle('done', beat >= c.end); c.fill.style.width = (beat <= c.b ? 0 : Math.min(100, (beat - c.b) / (c.end - c.b) * 100)) + '%'; });
   }
-  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '▶ Ouvir a frase'; $('oYou').textContent = '🎤 Agora eu canto'; $('oSay').classList.remove('you'); }
+  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '▶ Ouvir a frase'; $('oYou').textContent = '🎤 Agora eu canto'; $('oStep').textContent = '🎹 Uma nota por vez'; stopNotes(); $('oSay').classList.remove('you'); }
   function listen() {
     const o = L[i]; if (!o) return; stopAll(); const my = ++run, bp = 60, rate = slow ? 0.8 : 1, b0 = o.b0 - 0.5, b1 = o.b1 + 0.2;
     $('oGo').textContent = '■ Parar'; $('oSay').textContent = slow ? 'Ouça (devagar)…' : 'Ouça…';
@@ -1638,14 +1654,34 @@ const Ouvir = (() => {
     $('oYou').textContent = '■ Parar';
     playNote(o.words[0][0].ms[0], true);   // nota de entrada
     $('oSay').textContent = 'Nota de entrada…'; await new Promise(r => setTimeout(r, 1200)); if (my !== run) return;
-    beeps(60 / spb, 3);
-    for (const c of ['3', '2', '1']) { if (my !== run) return; $('oSay').textContent = 'Prepare-se… ' + c; await new Promise(r => setTimeout(r, spb * 1000)); }
-    if (my !== run) return;
-    $('oSay').textContent = '🎤 CANTE AGORA — siga a barra'; $('oSay').classList.add('you');
+    // contagem de 4 no tempo da música: a 1ª sílaba entra logo depois do "4"
+    beeps(60 / spb, 4); cells[0] && cells[0].el.classList.add('go');
+    for (const c of ['1', '2', '3', '4']) { if (my !== run) return; $('oSay').textContent = 'Conte comigo: ' + c + (c === '4' ? ' … e ENTRA!' : ''); await new Promise(r => setTimeout(r, spb * 1000)); }
+    if (my !== run) return; cells[0] && cells[0].el.classList.remove('go');
+    $('oSay').textContent = '🎤 ENTRE AGORA — siga a barra'; $('oSay').classList.add('you');
     const t0 = performance.now(), b0 = o.b0, b1 = o.b1 + 0.3;
     const t = () => { if (my !== run) return; const beat = b0 + (performance.now() - t0) / 1000 / spb; paint(beat); if (beat >= b1) { $('oSay').classList.remove('you'); $('oSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; $('oYou').textContent = '🎤 Cantar de novo'; return; } raf = requestAnimationFrame(t); }; t();
   }
+  // uma nota por vez, devagar, dizendo se sobe, desce ou fica: para ouvir e entender a altura de cada sílaba
+  async function steps() {
+    const o = L[i]; if (!o) return; stopAll(); const my = ++run, gap = slow ? 1400 : 1000;
+    $('oStep').textContent = '■ Parar';
+    const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(sy)));
+    for (let k = 0; k < syl.length; k++) {
+      const sy = syl[k], c = cells[k];
+      for (let j = 0; j < sy.ms.length; j++) {
+        if (my !== run) return;
+        const d = sy.mv[j]; cells.forEach(x => x.el.classList.remove('on')); c && c.el.classList.add('on');
+        $('oSay').textContent = '“' + sy.t + '” · ' + (k === 0 && j === 0 ? 'primeira nota' : d >= 3 ? 'sobe bastante ⇈' : d > 0 ? 'sobe ↑' : d <= -3 ? 'desce bastante ⇊' : d < 0 ? 'desce ↓' : 'mesma nota =');
+        noteNow(sy.ms[j]); await new Promise(r => setTimeout(r, gap));
+      }
+      c && c.el.classList.add('done');
+    }
+    if (my !== run) return; cells.forEach(x => x.el.classList.remove('on', 'done'));
+    $('oStep').textContent = '🎹 Uma nota por vez'; $('oSay').textContent = 'Agora ouça a frase inteira, no ritmo.';
+  }
   stoppers.add(stop);
+  $('oStep').onclick = () => { if ($('oStep').textContent.startsWith('■')) { stop(); return; } steps(); };
   $('oGo').onclick = () => { if ($('oGo').textContent.startsWith('■')) { stop(); return; } listen(); };
   $('oYou').onclick = () => { if ($('oYou').textContent.startsWith('■')) { stop(); return; } you(); };
   $('oPrev').onclick = () => { if (i > 0) { i--; render(); } };
@@ -1685,7 +1721,8 @@ LESSONS.forEach(L => {
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 $('install').hidden = standalone;
 rSet(); drawRange(); renderDiary();
-show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio','eco','ouvir'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : (PACK ? 'ouvir' : 'hoje'));
+{ const h = (location.hash || '').slice(1); let aq = ''; try { aq = localStorage.getItem('coral-aq'); } catch (e) {}
+  show(h && (PACK || !['ensaio', 'eco', 'ouvir'].includes(h)) ? h : !PACK ? 'diario' : aq === cycleKey() ? 'ouvir' : 'aquecer'); }
 addEventListener('resize', () => fit());
 // segundo plano / tela bloqueada / troca de app: para som, gravação e microfone
 function stopEverything() { stopAll(); try { gameStop(); } catch (e) {} try { tunerOff(); } catch (e) {} try { rMicOff(); } catch (e) {} Mic.stop(); }
