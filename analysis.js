@@ -44,10 +44,10 @@ const AN = (() => {
   function median(a) { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
 
   // notes: [{m: midi soando, b: início (tempos), d: duração (tempos)}]; spb = segundos por tempo; a música começa após 4 tempos de contagem
-  function align(tr, notes, spb, hint) {
+  function align(tr, notes, spb, hint, win) {
     const lead = 4 * spb, last = notes[notes.length - 1], songEnd = lead + (last.b + last.d) * spb, recLen = tr.length / fps;
     let lo = -lead, hi = Math.max(lo, recLen - songEnd * 0.6);
-    if (hint != null) { lo = hint - 0.6; hi = hint + 0.6; }
+    if (hint != null) { const w = win != null ? win : 0.6; lo = hint - w; hi = hint + w; }
     let best = { score: -1, off: 0 };
     for (let off = lo; off <= hi + 1e-9; off += 0.02) {
       let sc = 0, cnt = 0;
@@ -61,8 +61,8 @@ const AN = (() => {
     return best.off;
   }
 
-  function grade(tr, notes, spb, hint) {
-    const off = align(tr, notes, spb, hint), lead = 4 * spb;
+  function grade(tr, notes, spb, hint, win) {
+    const off = align(tr, notes, spb, hint, win), lead = 4 * spb;
     const per = notes.map(nt => {
       const a = off + lead + nt.b * spb, dur = nt.d * spb, f0 = Math.floor((a + dur * 0.25) * fps), f1 = Math.max(f0, Math.floor((a + dur * 0.8) * fps));
       const v = []; let tot = 0;
@@ -106,6 +106,16 @@ const AN = (() => {
       rhythm: { measured: rn, ok: rok, meanMs: rn ? Math.round(rsum / rn * 1000) : 0, tolMs: Math.round(tol * 1000) } };
   }
 
+  // Momento em que a voz começa (segundos): primeiro trecho de ~100 ms com altura estável (±1 semitom), entre from e to.
+  // Não depende de a nota estar certa, então serve para medir a ENTRADA mesmo quando a afinação erra.
+  function onset(tr, from, to) {
+    const f0 = Math.max(0, Math.floor(from * fps)), f1 = Math.min(tr.length - 5, Math.floor(to * fps));
+    for (let f = f0; f <= f1; f++) {
+      let ok = true; for (let k = 0; k < 5; k++) { const v = tr[f + k]; if (v !== v || Math.abs(v - tr[f]) > 1) { ok = false; break; } }
+      if (ok) return f / fps;
+    }
+    return null;
+  }
   // reamostra qualquer AudioBuffer (ou Float32 + taxa) para mono 16 kHz
   async function toMono16k(buf) {
     const len = Math.ceil(buf.duration * SR), off = new OfflineAudioContext(1, Math.max(1, len), SR);
@@ -125,6 +135,6 @@ const AN = (() => {
     buf.copyToChannel(all, 0);
     return toMono16k(buf);
   }
-  return { track, grade, yinFrame, decodeToMono16k, pcmToMono16k, SR };
+  return { track, grade, onset, yinFrame, decodeToMono16k, pcmToMono16k, SR };
 })();
 if (typeof module !== 'undefined') module.exports = AN;

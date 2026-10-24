@@ -56,6 +56,9 @@ header .song{color:var(--muted);font-weight:600}
 .ocell .ars{font-size:15px;line-height:1;min-height:15px;letter-spacing:-.05em}
 .ocell .otx{font:600 22px var(--f-body);line-height:1.1;white-space:nowrap}
 .ocell.go{outline:3px solid var(--red);animation:opulse .5s ease-in-out infinite alternate}@keyframes opulse{from{transform:scale(1)}to{transform:scale(1.06)}}@media (prefers-reduced-motion:reduce){.ocell.go{animation:none}}
+
+.ocell.g-ok .otx{color:var(--ok)} .ocell.g-near .otx{color:var(--near)} .ocell.g-high .otx{color:var(--high)} .ocell.g-low .otx{color:var(--low)} .ocell.g-none .otx{color:var(--silver);text-decoration:line-through}
+.ocell.g-ok .obar i{background:var(--ok)} .ocell.g-near .obar i{background:var(--near)} .ocell.g-high .obar i{background:var(--high)} .ocell.g-low .obar i{background:var(--low)}
 .osteps{margin:6px 0 10px;padding-left:20px;font-size:14px;color:var(--muted)} .osteps li{margin:2px 0}
 .ocell.on{background:var(--red-soft)} .ocell.on .otx{color:var(--red)} .ocell.done .otx{color:var(--muted)}
 .obar{position:relative;display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden}
@@ -292,7 +295,6 @@ body.insess .wrap{padding-bottom:150px}
   <nav class="tabs" role="tablist" aria-label="Seções">
     <button role="tab" data-v="aquecer" aria-selected="false">Aquecer</button>
     <button role="tab" data-v="ouvir" aria-selected="true">Ouvir</button>
-    <button role="tab" data-v="eco" aria-selected="false">Cantar</button>
     <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
     <button role="tab" data-v="diario" aria-selected="false" aria-label="Ajustes">⚙</button>
     <button id="moreTab" aria-expanded="false" hidden>Mais ›</button>
@@ -310,10 +312,11 @@ body.insess .wrap{padding-bottom:150px}
       <div class="obox" id="oBox"></div>
       <div class="olegend"><span><b class="ar up">↑</b> sobe</span><span><b class="ar up2">⇈</b> sobe muito</span><span><b class="ar dn">↓</b> desce</span><span><b class="ar dn2">⇊</b> desce muito</span><span><b class="ar eq">=</b> mesma nota</span><span><i class="olg-bar"></i> quanto tempo segurar</span><span><i class="olg-rest"></i> pausa (não cante)</span></div>
       <div class="ebig" id="oSay">&nbsp;</div>
-      <ol class="osteps"><li><b>Uma nota por vez:</b> ouça cada nota e se ela sobe, desce ou fica.</li><li><b>Ouvir a frase:</b> agora no ritmo, vendo a barra encher.</li><li><b>Agora eu canto:</b> conte 1, 2, 3, 4 com o app e entre logo depois do 4.</li></ol>
+      <ol class="osteps"><li><b>Uma nota por vez:</b> ouça cada nota e se ela sobe, desce ou fica.</li><li><b>Ouvir a frase:</b> agora no ritmo, vendo a barra encher.</li><li><b>Agora eu canto:</b> conte 1, 2, 3, 4 com o app e entre logo depois do 4. O app escuta e diz se a nota e a entrada ficaram certas.</li></ol>
       <div class="row"><button class="btn" id="oStep">🎹 Uma nota por vez</button><button class="btn" id="oSlow" aria-pressed="false">🐢 Devagar</button></div>
       <div class="row"><button class="btn pri bigbtn" id="oGo">▶ Ouvir a frase</button></div>
-      <div class="row"><button class="btn pri" id="oYou">🎤 Agora eu canto</button></div>
+      <div class="row"><button class="btn pri" id="oYou">🎤 Agora eu canto</button><label class="chk"><input type="checkbox" id="oMic" checked> O app me escuta e corrige</label></div>
+      <p class="msg" id="oRes"></p>
       <div class="row"><button class="btn" id="oPrev">◀ Frase anterior</button><button class="btn" id="oNext">Próxima frase ▶</button></div>
     </div>
   </section>
@@ -333,7 +336,7 @@ body.insess .wrap{padding-bottom:150px}
         <button class="btn" id="lsBig" aria-label="Letra maior">A+</button>
         <button class="btn" id="lsWeb">🔎 Procurar a letra na internet</button>
         <button class="btn" id="lsEdit">✎ Colar e conferir a letra</button>
-        <button class="btn pri" id="lsOpen">🎤 Treinar esta música</button>
+        <button class="btn pri" id="lsOpen">Treinar esta música</button>
       </div>
       <div id="lsEd" class="lyred" hidden>
         <p class="lead">Toque em “Procurar a letra na internet”, abra a letra num site confiável, copie e cole aqui. O app confere cada frase com a partitura (✓ igual, ≠ diferente, ? não encontrada), arruma as palavras e mantém as setas. Não precisa estar na mesma ordem nem com as repetições. Fica salvo só neste iPhone.</p>
@@ -595,7 +598,7 @@ body.insess .wrap{padding-bottom:150px}
       <div class="row"><label class="file btn pri"><input type="file" id="songIn" accept="application/json,.json,text/plain">Importar músicas (pode marcar as 5)</label><span class="save" id="songMsg"></span></div>
       <p class="lead">Enquanto isso, o aquecimento já funciona.</p>
     </div>
-    <div class="panel"><h2>Ajustes</h2><p class="lead">Músicas, partituras, letra e backup. Os treinos ficam em Aquecer, Ouvir, Cantar e Ensaio.</p>
+    <div class="panel"><h2>Ajustes</h2><p class="lead">Músicas, partituras, letra e backup. Os treinos ficam em Aquecer, Ouvir e Ensaio.</p>
       <div class="row"><button class="btn pri" id="ajLetra">Letra e partituras</button></div></div>
     <div class="aj-old" hidden>
     <div class="panel"><h2>Resumo</h2><p class="msg" id="dSum">Nenhum treino registrado ainda.</p></div>

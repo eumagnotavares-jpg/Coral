@@ -246,7 +246,7 @@ function karaoke(els, beat) { let cur = null; els.forEach(({ e, el }) => { const
 const VIEWS = ['ouvir','hoje','musicas','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
 let view = 'hoje';
 // Telas que saíram do app (o foco agora é só aquecer e aprender as músicas): quem chamar uma delas cai no Ouvir.
-const GONE = ['hoje', 'jogo', 'aulas', 'corrigir', 'treinar', 'afinador', 'alcance'];
+const GONE = ['hoje', 'jogo', 'aulas', 'corrigir', 'treinar', 'afinador', 'alcance', 'eco'];
 function show(v) {
   if (!VIEWS.includes(v) || GONE.includes(v)) v = PACK ? 'ouvir' : 'diario';
   if (view === 'aquecer' && v !== 'aquecer') { aqSeq = false; stopBreath(); stopWarm(); }
@@ -1585,7 +1585,7 @@ const Letras = (() => {
   $('lsWeb').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const comp = (x.credit || '').split(/[·(]/)[0].trim(); const q = 'letra ' + x.title + (comp ? ' ' + comp : ''); window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener'); };
   $('lsSave').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const v = $('lsTa').value.trim(); try { if (v) localStorage.setItem(keyOf(x.id), v); else localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsClear').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
-  $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { ecoOpen(firstSec(), 0); ecoCycle(); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
+  $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { show('ouvir'); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'ouvir'; } catch (e) {} location.reload(); };
   // frases da música para o Ouvir: letra da partitura (corrigida pelo texto colado, se houver); sem PDF, só as notas
   async function lines(x) {
     let r = null; try { r = await fromPdf(x); } catch (e) {}
@@ -1610,7 +1610,7 @@ const Ouvir = (() => {
     loaded = true; $('oNoLyr').hidden = !noLyr; render();
   }
   function render() {
-    stop(); const o = L[i]; if (!o) return; $('oBox').scrollLeft = 0;
+    stop(); const o = L[i]; if (!o) return; $('oBox').scrollLeft = 0; $('oRes').textContent = '';
     try { localStorage.setItem(keyI(), i); } catch (e) {}
     $('oPart').textContent = o.part || ''; $('oNum').textContent = 'Frase ' + (i + 1) + ' de ' + L.length;
     $('oPrev').disabled = i === 0; $('oNext').disabled = i >= L.length - 1;
@@ -1641,7 +1641,7 @@ const Ouvir = (() => {
   function paint(beat) {
     cells.forEach(c => { const on = beat >= c.b && beat < c.end; if (on && !c.el.classList.contains('on')) { const bx = $('oBox'); if (c.el.offsetLeft + c.el.offsetWidth > bx.scrollLeft + bx.clientWidth - 20 || c.el.offsetLeft < bx.scrollLeft) bx.scrollTo({ left: Math.max(0, c.el.offsetLeft - 30), behavior: reduce ? 'auto' : 'smooth' }); } c.el.classList.toggle('on', on); c.el.classList.toggle('done', beat >= c.end); c.fill.style.width = (beat <= c.b ? 0 : Math.min(100, (beat - c.b) / (c.end - c.b) * 100)) + '%'; });
   }
-  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '▶ Ouvir a frase'; $('oYou').textContent = '🎤 Agora eu canto'; $('oStep').textContent = '🎹 Uma nota por vez'; stopNotes(); $('oSay').classList.remove('you'); }
+  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); if (Mic.rec && !micBusyElsewhere('ouvir')) { Mic.rec = null; } if (Mic.on && !micBusyElsewhere('ouvir')) Mic.stop(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '▶ Ouvir a frase'; $('oYou').textContent = '🎤 Agora eu canto'; $('oStep').textContent = '🎹 Uma nota por vez'; stopNotes(); $('oSay').classList.remove('you'); }
   function listen() {
     const o = L[i]; if (!o) return; stopAll(); const my = ++run, bp = 60, rate = slow ? 0.8 : 1, b0 = o.b0 - 0.5, b1 = o.b1 + 0.2;
     $('oGo').textContent = '■ Parar'; $('oSay').textContent = slow ? 'Ouça (devagar)…' : 'Ouça…';
@@ -1649,18 +1649,55 @@ const Ouvir = (() => {
     try { A.main.playbackRate = rate; A.main.preservesPitch = true; A.main.webkitPreservesPitch = true; } catch (e) {}
     const t = () => { if (my !== run) return; const beat = (A.main.currentTime - offS()) / (60 / bp) - 4; paint(beat); if (beat >= b1) { A.main.pause(); $('oGo').textContent = '↺ Ouvir de novo'; $('oSay').textContent = 'Agora tente: toque em “Agora eu canto”.'; return; } raf = requestAnimationFrame(t); }; t();
   }
+  function clearGrade() { cells.forEach(c => c.el.classList.remove('g-ok', 'g-near', 'g-high', 'g-low', 'g-none')); $('oRes').textContent = ''; }
   async function you() {
-    const o = L[i]; if (!o) return; stopAll(); const my = ++run, spb = 60 / 60 / (slow ? 0.8 : 1);
+    const o = L[i]; if (!o) return; stopAll(); clearGrade(); const my = ++run, spb = 60 / 60 / (slow ? 0.8 : 1);
     $('oYou').textContent = '■ Parar';
-    playNote(o.words[0][0].ms[0], true);   // nota de entrada
-    $('oSay').textContent = 'Nota de entrada…'; await new Promise(r => setTimeout(r, 1200)); if (my !== run) return;
+    playNote(o.words[0][0].ms[0], true);   // nota de entrada (antes de ligar o microfone, para sair no alto-falante)
+    $('oSay').textContent = 'Nota de entrada…'; await new Promise(r => setTimeout(r, 1300)); if (my !== run) return;
+    let useMic = $('oMic').checked;
+    if (useMic) { try { await Mic.start(); } catch (err) { if (my !== run) return; useMic = false; $('oRes').textContent = micError(err); } }
+    if (my !== run) { if (!micBusyElsewhere('ouvir')) Mic.stop(); return; }
     // contagem de 4 no tempo da música: a 1ª sílaba entra logo depois do "4"
     beeps(60 / spb, 4); cells[0] && cells[0].el.classList.add('go');
-    for (const c of ['1', '2', '3', '4']) { if (my !== run) return; $('oSay').textContent = 'Conte comigo: ' + c + (c === '4' ? ' … e ENTRA!' : ''); await new Promise(r => setTimeout(r, spb * 1000)); }
+    // a gravação começa no "3" (2 tempos antes da entrada) para também pegar quem entra cedo
+    for (const c of ['1', '2', '3', '4']) { if (my !== run) return; if (c === '3' && useMic) Mic.rec = []; $('oSay').textContent = 'Conte comigo: ' + c + (c === '4' ? ' … e ENTRA!' : ''); await new Promise(r => setTimeout(r, spb * 1000)); }
     if (my !== run) return; cells[0] && cells[0].el.classList.remove('go');
     $('oSay').textContent = '🎤 ENTRE AGORA — siga a barra'; $('oSay').classList.add('you');
-    const t0 = performance.now(), b0 = o.b0, b1 = o.b1 + 0.3;
-    const t = () => { if (my !== run) return; const beat = b0 + (performance.now() - t0) / 1000 / spb; paint(beat); if (beat >= b1) { $('oSay').classList.remove('you'); $('oSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; $('oYou').textContent = '🎤 Cantar de novo'; return; } raf = requestAnimationFrame(t); }; t();
+    const t0 = performance.now(), b0 = o.b0, b1 = o.b1 + (useMic ? 0.6 : 0.3), PRE = 2;
+    await new Promise(res => { const t = () => { if (my !== run) return res(); const beat = b0 + (performance.now() - t0) / 1000 / spb; paint(beat); if (beat >= b1) return res(); raf = requestAnimationFrame(t); }; t(); });
+    if (my !== run) return;
+    $('oSay').classList.remove('you'); cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; });
+    if (useMic) {
+      const chunks = Mic.rec || []; Mic.rec = null; const sr = Mic.ctx ? Mic.ctx.sampleRate : 48000; if (!micBusyElsewhere('ouvir')) Mic.stop();
+      $('oSay').textContent = 'Conferindo…';
+      try {
+        const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(sy)));
+        const notes = [], own = []; syl.forEach((sy, k) => sy.nb.forEach(n => { notes.push({ m: n.m - 12, b: n.b - b0, d: n.d }); own.push(k); }));
+        const x = await AN.pcmToMono16k(chunks, sr), tr = await AN.track(x);
+        // entrada: quando a voz começou (independe de a nota estar certa); a gravação começou PRE tempos antes da 1ª nota
+        const exp = PRE * spb, on = AN.onset(tr, exp - 1.2 * spb, exp + 1.5 * spb);
+        const hint = (on != null ? on : exp) - 4 * spb;
+        const g = AN.grade(tr, notes, spb, hint, on != null ? 0.15 : 0.6); if (my !== run) return;
+        // cor de cada sílaba = pior nota dela
+        const rank = { none: 0, low: 1, high: 1, near: 2, ok: 3 }, st = syl.map(() => 'ok');
+        g.per.forEach((pp, k) => { const c = own[k]; if (rank[pp.status] < rank[st[c]]) st[c] = pp.status; });
+        cells.forEach((c, k) => c.el.classList.add('g-' + st[k]));
+        const lateMs = on != null ? Math.round((on - exp) * 1000) : 0, low = g.per.filter(pp => pp.status === 'low').length, high = g.per.filter(pp => pp.status === 'high').length;
+        let msg;
+        if (g.heard < notes.length * 0.3) msg = 'Não ouvi bem sua voz. Cante um pouco mais forte ou mais perto do iPhone.';
+        else {
+          msg = 'Acertou ' + g.good + ' de ' + g.total + ' notas.';
+          msg += on == null ? ' Não consegui medir a entrada.' : lateMs > 180 ? ' Você entrou atrasado: entre logo depois do “4”.' : lateMs < -180 ? ' Você entrou cedo: espere o “4” terminar.' : ' Entrada na hora certa.';
+          if (low > high && low) msg += ' Notas em azul ficaram baixas: pense em “subir”.';
+          else if (high > low && high) msg += ' Notas em vermelho ficaram altas: pense em “descer”.';
+          if (g.per.some(pp => pp.octJump)) msg += ' Alguma nota saiu numa altura bem diferente (uma oitava): ouça de novo “Uma nota por vez”.';
+          if (g.good === g.total && Math.abs(lateMs) <= 180) msg = 'Perfeito! Notas e entrada certas. Pode ir para a próxima frase.';
+        }
+        $('oRes').textContent = msg; $('oSay').textContent = 'Veja as cores: verde certo · amarelo quase · vermelho alto · azul baixo · cinza não ouvi.';
+      } catch (e) { $('oRes').textContent = 'Não consegui conferir desta vez.'; $('oSay').textContent = ''; }
+    } else { $('oSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; }
+    $('oYou').textContent = '🎤 Cantar de novo';
   }
   // uma nota por vez, devagar, dizendo se sobe, desce ou fica: para ouvir e entender a altura de cada sílaba
   async function steps() {
@@ -1687,6 +1724,8 @@ const Ouvir = (() => {
   $('oPrev').onclick = () => { if (i > 0) { i--; render(); } };
   $('oNext').onclick = () => { if (i < L.length - 1) { i++; render(); } };
   $('oSlow').onclick = () => { slow = !slow; $('oSlow').setAttribute('aria-pressed', slow); };
+  $('oMic').onchange = e => { try { localStorage.setItem('coral-omic', e.target.checked ? '1' : '0'); } catch (x) {} };
+  try { $('oMic').checked = localStorage.getItem('coral-omic') !== '0'; } catch (x) {}
   $('oLetra').onclick = () => show('musicas');
   if ($('oSong')) {
     const sel = $('oSong'); sel.innerHTML = ''; [...SONGS].sort((a, b) => a.title.localeCompare(b.title)).forEach(x => { const op = document.createElement('option'); op.value = x.id; op.textContent = x.title; op.selected = PACK && x.id === PACK.id; sel.appendChild(op); });
