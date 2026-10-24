@@ -1488,8 +1488,8 @@ document.addEventListener('score-ready', loadScoreLyrics);
 
 /* ================= MÚSICAS (letra completa, lida do PDF da pessoa ou escrita por ela) ================= */
 const Letras = (() => {
-  const cache = {}; let sel = null, size = 17;
-  try { size = +localStorage.getItem('coral-letra-size') || 17; } catch (e) {}
+  const cache = {}; let sel = null, size = 14;
+  try { size = +localStorage.getItem('coral-letra-size') || 14; } catch (e) {}
   const keyOf = id => 'coral-letra:' + id;
   const typed = id => { try { return localStorage.getItem(keyOf(id)) || ''; } catch (e) { return ''; } };
   // Monta as frases da música: cada linha vira uma frase com sílabas; cada sílaba guarda suas notas (altura, início, duração)
@@ -1664,7 +1664,7 @@ const Letras = (() => {
     render();
   };
   $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
-  $('lsSmall').onclick = () => { size = Math.max(14, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
+  $('lsSmall').onclick = () => { size = Math.max(11, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
   $('lsEdit').onclick = async () => {
     const x = SONGS.find(s => s.id === sel); if (!x) return; const ed = $('lsEd');
     if (!ed.hidden) { ed.hidden = true; return; }
