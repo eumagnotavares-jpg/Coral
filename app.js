@@ -1488,8 +1488,8 @@ document.addEventListener('score-ready', loadScoreLyrics);
 
 /* ================= MÚSICAS (letra completa, lida do PDF da pessoa ou escrita por ela) ================= */
 const Letras = (() => {
-  const cache = {}; let sel = null, size = 20;
-  try { size = +localStorage.getItem('coral-letra-size') || 20; } catch (e) {}
+  const cache = {}; let sel = null, size = 17;
+  try { size = +localStorage.getItem('coral-letra-size') || 17; } catch (e) {}
   const keyOf = id => 'coral-letra:' + id;
   const typed = id => { try { return localStorage.getItem(keyOf(id)) || ''; } catch (e) { return ''; } };
   // Monta as frases da música: cada linha vira uma frase com sílabas; cada sílaba guarda suas notas (altura, início, duração)
