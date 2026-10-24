@@ -40,8 +40,8 @@ const SongDB = {
 // Todas as chaves deste app no aparelho começam com "coral-". Por música: progresso, letra por trecho e letra colada.
 const LS = {
   storeKey: id => 'coral-tenor-v1' + (id && id !== 'maracangalha' ? ':' + id : ''),
-  songKeys: id => [LS.storeKey(id), 'coral-lyr:' + id, 'coral-letra:' + id],
-  idOfKey(k) { if (k === 'coral-tenor-v1') return 'maracangalha'; const m = /^coral-(?:tenor-v1|lyr|letra):(.+)$/.exec(k); return m ? m[1] : null; },
+  songKeys: id => [LS.storeKey(id), 'coral-lyr:' + id, 'coral-letra:' + id, 'coral-ouvir:' + id],
+  idOfKey(k) { if (k === 'coral-tenor-v1') return 'maracangalha'; const m = /^coral-(?:tenor-v1|lyr|letra|ouvir):(.+)$/.exec(k); return m ? m[1] : null; },
   all() { const o = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('coral-')) o[k] = localStorage.getItem(k); } } catch (e) {} return o; }
 };
 const isNum = v => typeof v === 'number' && isFinite(v);
@@ -243,7 +243,7 @@ function fit(root) { (root || document).querySelectorAll('.ln').forEach(l => { l
 function karaoke(els, beat) { let cur = null; els.forEach(({ e, el }) => { const on = beat >= e.b && beat < e.b + e.d; el.classList.toggle('cur', on); el.classList.toggle('done', beat >= e.b + e.d); if (on) cur = el; }); return cur; }
 
 /* ================= Abas ================= */
-const VIEWS = ['hoje','musicas','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
+const VIEWS = ['ouvir','hoje','musicas','eco','jogo','ensaio','aulas','corrigir','diario','treinar','afinador','aquecer','alcance'];
 let view = 'hoje';
 function show(v) {
   if (!VIEWS.includes(v)) v = 'hoje';
@@ -252,14 +252,16 @@ function show(v) {
   if (view === 'eco' && v !== 'eco') ecoStop();
   if (view === 'jogo' && v !== 'jogo') gameStop();
   if (view === 'corrigir' && v !== 'corrigir') stopRec(false);
+  if (view === 'ouvir' && v !== 'ouvir') Ouvir.stop();
   if (v === 'eco' && PACK && !E.sec && SECS.length) { E.sec = secById(firstSec()) || SECS[0]; E.li = 0; document.querySelectorAll('#eSecs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === E.sec.id)); setTimeout(ecoRender, 0); }
-  if (['treinar', 'afinador', 'aquecer', 'alcance'].includes(v)) document.body.classList.add('adv');
+  if (!['ouvir', 'eco', 'ensaio'].includes(v)) document.body.classList.add('adv');
   view = v;
   document.querySelectorAll('.tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.v === v); if (b.dataset.v === v) b.scrollIntoView({ inline: 'center', block: 'nearest' }); });
   VIEWS.forEach(x => $('v-' + x).hidden = x !== v);
   try { history.replaceState(null, '', '#' + v); } catch (e) {}
   if (v === 'hoje') renderDay();
   if (v === 'musicas') Letras.open();
+  if (v === 'ouvir') Ouvir.open();
   window.scrollTo(0, 0);
   requestAnimationFrame(() => fit());
 }
@@ -1021,7 +1023,7 @@ async function importSongs(files, msgEl) {
 $('songName').textContent = PACK ? PACK.title : 'sem música';
 $('credit').textContent = PACK ? (PACK.credit || PACK.title) + '. ' + (PACK.guide ? PACK.guide + ' ' : '') + 'O áudio já está na oitava da sua voz.' : 'Nenhuma música importada. As músicas ficam só no seu aparelho.';
 $('noSong').hidden = !!PACK;
-if (!PACK) ['treinar', 'corrigir', 'ensaio', 'eco'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
+if (!PACK) ['treinar', 'corrigir', 'ensaio', 'eco', 'ouvir'].forEach(v => document.querySelector('.tabs button[data-v="' + v + '"]').hidden = true);
 renderSongs();
 
 
@@ -1385,6 +1387,30 @@ const Letras = (() => {
   try { size = +localStorage.getItem('coral-letra-size') || 20; } catch (e) {}
   const keyOf = id => 'coral-letra:' + id;
   const typed = id => { try { return localStorage.getItem(keyOf(id)) || ''; } catch (e) { return ''; } };
+  // Monta as frases da música: cada linha vira uma frase com sílabas; cada sílaba guarda suas notas (altura, início, duração)
+  // e a direção em relação à nota anterior (sobe/desce/igual). Partes (blocos) viram títulos.
+  function buildLines(lines, blocks, withLyrics) {
+    const out = []; let bi = -1, pm = null;
+    const dir = m => { const d = pm == null ? 0 : m - pm; pm = m; return d; };
+    lines.forEach((ln, li) => {
+      if (!ln.length) return;
+      const b0 = ln[0].b, lastE = ln[ln.length - 1]; let nb = bi; while (nb + 1 < blocks.length && blocks[nb + 1].start <= b0 + 1e-6) nb++;
+      if (nb !== bi) { bi = nb; out.push({ h: blocks[bi].label + (blocks[bi].sub ? ' · ' + blocks[bi].sub : '') }); }
+      const any = withLyrics && ln.some(e => e.sp && e.sp !== '~');
+      let t = '', glue = false; const words = []; let cw = null, last = null;
+      ln.forEach(e => {
+        const d = e.m == null ? 0 : dir(e.m), note = { m: e.m, b: e.b, d: e.d };
+        let sp = any ? e.sp : '♪';
+        if ((sp === '~' || !sp) && last && any) { last.mv.push(d); last.ms.push(e.m); last.nb.push(note); return; }
+        if (!sp || sp === '~') sp = '•';
+        if (any) t += (t && !glue ? ' ' : '') + sp;
+        if (!cw || !glue || !any) { cw = []; words.push(cw); }
+        last = { t: sp, mv: [d], ms: [e.m], nb: [note] }; cw.push(last); glue = any && !!e.hy;
+      });
+      out.push({ t: any ? t : '♪ (só melodia, sem letra)', words, mel: !any, li, b0, b1: lastE.b + lastE.d });
+    });
+    return out;
+  }
   async function fromPdf(x) {
     if (cache[x.id]) return cache[x.id];
     if (!x.score || !x.score.boxes || !x.full || !x.full.meas) return null;
@@ -1394,27 +1420,7 @@ const Letras = (() => {
     const lines = JSON.parse(JSON.stringify(x.full.lines.map(l => l.ev)));
     lines.flat().forEach(e => { e.sp = null; });
     if (!fillLyrics(lines, x.full.meas, map, x.score.boxes)) return null;
-    // monta o texto: cada linha da música vira uma linha de texto; partes (blocos) viram títulos
-    const blocks = (x.full.blocks || []).slice(); const out = []; let bi = -1, pm = null;
-    const dir = m => { const d = pm == null ? 0 : m - pm; pm = m; return d; };
-    lines.forEach(ln => {
-      if (!ln.length) return;
-      const b0 = ln[0].b; let nb = bi; while (nb + 1 < blocks.length && blocks[nb + 1].start <= b0 + 1e-6) nb++;
-      if (nb !== bi) { bi = nb; out.push({ h: blocks[bi].label + (blocks[bi].sub ? ' · ' + blocks[bi].sub : '') }); }
-      let t = '', glue = false, any = false; const words = []; let cw = null, last = null;
-      ln.forEach(e => {
-        const s = e.sp, d = e.m == null ? 0 : dir(e.m);
-        if (s === '~' && last) { last.mv.push(d); last.ms.push(e.m); return; }
-        if (!s || s === '~') { last = null; return; }
-        any = true; t += (t && !glue ? ' ' : '') + s;
-        if (!cw || !glue) { cw = []; words.push(cw); }
-        last = { t: s, mv: [d], ms: [e.m] }; cw.push(last); glue = !!e.hy;
-      });
-      out.push(any ? { t, words } : { t: '♪ (só melodia, sem letra)' });
-    });
-    // junta linhas iguais seguidas do tipo "só melodia"
-    const res = []; out.forEach(o => { const l = res[res.length - 1]; if (o.t && l && l.t === o.t && o.t.startsWith('♪')) return; res.push(o); });
-    return (cache[x.id] = res);
+    return (cache[x.id] = buildLines(lines, x.full.blocks || [], true));
   }
   // Usa a letra colada pela pessoa para arrumar espaços/grafia, mantendo as sílabas (e as notas/setas) da partitura.
   function alignTyped(r, txt) {
@@ -1423,7 +1429,7 @@ const Letras = (() => {
     for (let k = 0; k < N; k++) start[k] = (k === 0 || U.O[k] !== U.O[k - 1] + 1) ? 1 : 0;
     let n = 0;
     const out = r.map(o => {
-      if (!o.words) return o;
+      if (!o.words || o.mel) return o;
       const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(Object.assign({}, sy))));
       const P = [], own = []; syl.forEach((sy, si) => { const l = lettersOf(sy.t).L; l.forEach(c => { P.push(c); own.push(si); }); });
       const M = P.length; if (!M || !N) return o;
@@ -1435,7 +1441,7 @@ const Letras = (() => {
         if (a <= b && a <= c) { D[i * W + j] = a; T[i * W + j] = 1; } else if (b <= c) { D[i * W + j] = b; T[i * W + j] = 2; } else { D[i * W + j] = c; T[i * W + j] = 3; }
       }
       let bj = 0, bv = 1e9; for (let j = 0; j <= N; j++) if (D[M * W + j] < bv) { bv = D[M * W + j]; bj = j; }
-      if (bv > Math.max(2, M * 0.3)) return o;   // trecho não encontrado no texto colado: fica como a partitura
+      if (bv > Math.max(2, M * 0.3)) return Object.assign({}, o, { chk: 'nf' });   // frase não encontrada no texto colado: fica como a partitura
       const map = new Int32Array(M).fill(-1); let i = M, j = bj;
       while (i > 0) { const t = T[i * W + j]; if (t === 1) { map[i - 1] = j - 1; i--; j--; } else if (t === 2) i--; else if (t === 3) j--; else break; }
       // novo texto de cada sílaba (grafia do texto colado) e onde começam as palavras
@@ -1445,7 +1451,7 @@ const Letras = (() => {
       const words = []; let cw = null;
       syl.forEach((sy, si) => { if (!cw || sy.ws) { cw = []; words.push(cw); } cw.push(sy); });
       n++;
-      return { t: syl.map(sy => (sy.ws ? ' ' : '') + sy.t).join('').trim(), words };
+      return Object.assign({}, o, { t: syl.map(sy => (sy.ws ? ' ' : '') + sy.t).join('').trim(), words, chk: bv === 0 ? 'ok' : 'dif', orig: o.t });
     });
     return { r: out, n };
   }
@@ -1485,6 +1491,7 @@ const Letras = (() => {
     if (sel !== x.id) return;
     let fixed = 0;
     if (t && r) { const a = alignTyped(r, t); r = a.r; fixed = a.n; }
+    if (r) { const rr = []; r.forEach(o => { const l = rr[rr.length - 1]; if (o.mel && l && l.mel) return; rr.push(o); }); r = rr; }
     else if (t) { plain(); return; }
     body.innerHTML = '';
     if (!r) {
@@ -1501,8 +1508,9 @@ const Letras = (() => {
     const tip = document.createElement('p'); tip.className = 'lead'; tip.textContent = 'A seta em cima de cada sílaba compara com a nota anterior. Toque numa sílaba para ouvir a nota dela.'; body.appendChild(tip);
     const arrow = d => d >= 3 ? ['up2', '⇈'] : d > 0 ? ['up', '↑'] : d <= -3 ? ['dn2', '⇊'] : d < 0 ? ['dn', '↓'] : ['eq', '='];
     r.forEach(o => {
-      if (o.h || !o.words) { const p = document.createElement(o.h ? 'h3' : 'p'); p.className = o.h ? 'lsh' : 'lsl' + (o.t.startsWith('♪') ? ' lsm' : ''); p.textContent = o.h || o.t; body.appendChild(p); return; }
-      const p = document.createElement('p'); p.className = 'lsl lsp';
+      if (o.h || !o.words || o.mel) { const p = document.createElement(o.h ? 'h3' : 'p'); p.className = o.h ? 'lsh' : 'lsl' + (o.mel ? ' lsm' : ''); p.textContent = o.h || o.t; body.appendChild(p); return; }
+      const p = document.createElement('p'); p.className = 'lsl lsp' + (o.chk ? ' chk-' + o.chk : '');
+      if (o.chk) { const k = document.createElement('span'); k.className = 'chk'; k.textContent = o.chk === 'ok' ? '✓' : o.chk === 'dif' ? '≠' : '?'; k.title = o.chk === 'ok' ? 'Igual ao texto colado' : o.chk === 'dif' ? 'Pequena diferença entre a partitura e o texto colado' : 'Frase não encontrada no texto colado'; p.appendChild(k); }
       o.words.forEach((w, wi) => {
         const ws = document.createElement('span'); ws.className = 'lw';
         w.forEach(sy => {
@@ -1516,7 +1524,15 @@ const Letras = (() => {
         p.appendChild(ws); if (wi < o.words.length - 1) p.appendChild(document.createTextNode(' '));
       });
       body.appendChild(p);
+      if (o.chk === 'dif' && o.orig) { const d = document.createElement('p'); d.className = 'lsorig'; d.textContent = 'Na partitura: ' + o.orig; body.appendChild(d); }
     });
+    if (t) {
+      const c = { ok: 0, dif: 0, nf: 0 }; r.forEach(o => { if (o.chk) c[o.chk]++; });
+      const sm = document.createElement('div'); sm.className = 'panel chksum';
+      sm.innerHTML = '<b>Conferência com o texto colado</b><p class="lead"></p>';
+      sm.querySelector('p').textContent = '✓ ' + c.ok + ' frase(s) iguais · ≠ ' + c.dif + ' com diferença (veja “Na partitura”) · ? ' + c.nf + ' não encontradas no texto colado (repetições, “lá lá”, vocalizes ou trechos que o site não tem).';
+      body.insertBefore(sm, body.firstChild);
+    }
     $('lsNote').textContent = t ? 'Letra corrigida com o texto que você colou ✓ (' + fixed + ' de ' + r.filter(o => o.words).length + ' linhas conferidas). As setas continuam seguindo as notas.' : 'Letra lida da sua partitura, na ordem em que você canta. Pode ter palavras grudadas ou partidas: toque em “✎ Escrever/colar a letra” e cole a letra certa — o app arruma as palavras e mantém as setas.';
   }
   const norm = t => (t || '').normalize('NFD').toLowerCase().replace(/[^a-z]/g, '');
@@ -1549,11 +1565,98 @@ const Letras = (() => {
     if (!ed.hidden) { ed.hidden = true; return; }
     $('lsTa').value = typed(x.id); ed.hidden = false; $('lsTa').focus();
   };
-  $('lsFromPdf').onclick = async () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { const r = await fromPdf(x); if (r) $('lsTa').value = r.filter(o => o.words).map(o => o.t).join('\n'); } catch (e) {} };
+  $('lsFromPdf').onclick = async () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { const r = await fromPdf(x); if (r) $('lsTa').value = r.filter(o => o.words && !o.mel).map(o => o.t).join('\n'); } catch (e) {} };
+  $('lsWeb').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const comp = (x.credit || '').split(/[·(]/)[0].trim(); const q = 'letra ' + x.title + (comp ? ' ' + comp : ''); window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener'); };
   $('lsSave').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const v = $('lsTa').value.trim(); try { if (v) localStorage.setItem(keyOf(x.id), v); else localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsClear').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { ecoOpen(firstSec(), 0); ecoCycle(); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
-  return { open() { if (!sel) sel = PACK ? PACK.id : (SONGS[0] && SONGS[0].id); chips(); render(); } };
+  // frases da música para o Ouvir: letra da partitura (corrigida pelo texto colado, se houver); sem PDF, só as notas
+  async function lines(x) {
+    let r = null; try { r = await fromPdf(x); } catch (e) {}
+    const t = typed(x.id); if (r && t) r = alignTyped(r, t).r;
+    if (!r) { const ls = JSON.parse(JSON.stringify(x.full.lines.map(l => l.ev))); r = buildLines(ls, x.full.blocks || [], false); r.noLyrics = true; }
+    return r;
+  }
+  return { lines, open() { if (!sel) sel = PACK ? PACK.id : (SONGS[0] && SONGS[0].id); chips(); render(); } };
+})();
+
+/* ================= OUVIR: frase por frase, com setas (altura) e barras (tempo) ================= */
+const Ouvir = (() => {
+  let L = [], i = 0, slow = false, run = 0, raf = 0, cells = [], loaded = false, noLyr = false;
+  const keyI = () => 'coral-ouvir:' + (PACK ? PACK.id : '');
+  const arrow = d => d >= 3 ? ['up2', '⇈'] : d > 0 ? ['up', '↑'] : d <= -3 ? ['dn2', '⇊'] : d < 0 ? ['dn', '↓'] : ['eq', '='];
+  async function load() {
+    if (!PACK) { $('oBox').innerHTML = '<p class="msg">Importe as músicas primeiro (Mais › Diário).</p>'; return; }
+    $('oSay').textContent = 'Preparando as frases…';
+    const r = await Letras.lines(PACK); noLyr = !!r.noLyrics; L = []; let part = '';
+    r.forEach(o => { if (o.h) { part = o.h; return; } L.push(Object.assign({ part }, o)); });
+    try { i = Math.min(L.length - 1, Math.max(0, +localStorage.getItem(keyI()) || 0)); } catch (e) { i = 0; }
+    loaded = true; $('oNoLyr').hidden = !noLyr; render();
+  }
+  function render() {
+    stop(); const o = L[i]; if (!o) return; $('oBox').scrollLeft = 0;
+    try { localStorage.setItem(keyI(), i); } catch (e) {}
+    $('oPart').textContent = o.part || ''; $('oNum').textContent = 'Frase ' + (i + 1) + ' de ' + L.length;
+    $('oPrev').disabled = i === 0; $('oNext').disabled = i >= L.length - 1;
+    const box = $('oBox'); box.innerHTML = ''; cells = [];
+    const syl = []; o.words.forEach((w, wi) => w.forEach((sy, k) => syl.push({ sy, hy: k < w.length - 1 })));
+    const total = Math.max(1, o.b1 - o.b0), avail = Math.max(240, (box.clientWidth || 340) - 12);
+    const unit = Math.max(46, Math.min(80, avail / total));   // pixels por tempo (frase longa: a linha rola para o lado)
+    const row = document.createElement('div'); row.className = 'orow'; let prevEnd = o.b0;
+    syl.forEach(({ sy, hy }) => {
+      const b = sy.nb[0].b, last = sy.nb[sy.nb.length - 1], end = last.b + last.d;
+      if (b - prevEnd > 0.05) { const g = document.createElement('div'); g.className = 'orest'; g.style.width = Math.round((b - prevEnd) * unit) + 'px'; g.innerHTML = '<span>pausa</span>'; row.appendChild(g); }
+      prevEnd = end;
+      const c = document.createElement('button'); c.type = 'button'; c.className = 'ocell'; c.style.minWidth = Math.round((end - b) * unit) + 'px';
+      const ar = document.createElement('span'); ar.className = 'ars';
+      sy.mv.forEach(d => { const [k, ch] = arrow(d); const x = document.createElement('b'); x.className = 'ar ' + k; x.textContent = ch; ar.appendChild(x); });
+      const tx = document.createElement('span'); tx.className = 'otx'; tx.textContent = sy.t + (hy ? '-' : '');
+      const bar = document.createElement('span'); bar.className = 'obar'; bar.style.width = Math.max(8, Math.round((end - b) * unit) - 4) + 'px';
+      sy.nb.forEach(n => { const seg = document.createElement('i'); seg.style.flex = n.d + ' 1 0'; bar.appendChild(seg); });
+      const fill = document.createElement('em'); bar.appendChild(fill);
+      c.append(ar, tx, bar);
+      c.onclick = () => { if (sy.ms.length > 1) playSeq(sy.ms, 450); else playNote(sy.ms[0]); };
+      row.appendChild(c); cells.push({ el: c, fill, b, end });
+    });
+    box.appendChild(row);
+    const first = syl[0] && syl[0].sy.nb[0].b, lead = first - o.b0;
+    $('oSay').textContent = 'Toque numa sílaba para ouvir a nota dela.';
+  }
+  function paint(beat) {
+    cells.forEach(c => { const on = beat >= c.b && beat < c.end; if (on && !c.el.classList.contains('on')) { const bx = $('oBox'); if (c.el.offsetLeft + c.el.offsetWidth > bx.scrollLeft + bx.clientWidth - 20 || c.el.offsetLeft < bx.scrollLeft) bx.scrollTo({ left: Math.max(0, c.el.offsetLeft - 30), behavior: reduce ? 'auto' : 'smooth' }); } c.el.classList.toggle('on', on); c.el.classList.toggle('done', beat >= c.end); c.fill.style.width = (beat <= c.b ? 0 : Math.min(100, (beat - c.b) / (c.end - c.b) * 100)) + '%'; });
+  }
+  function stop() { run++; cancelAnimationFrame(raf); if (A.owner === 'ouvir') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} cells.forEach(c => { c.el.classList.remove('on', 'done'); c.fill.style.width = '0%'; }); $('oGo').textContent = '▶ Ouvir a frase'; $('oYou').textContent = '🎤 Agora eu canto'; $('oSay').classList.remove('you'); }
+  function listen() {
+    const o = L[i]; if (!o) return; stopAll(); const my = ++run, bp = 60, rate = slow ? 0.8 : 1, b0 = o.b0 - 0.5, b1 = o.b1 + 0.2;
+    $('oGo').textContent = '■ Parar'; $('oSay').textContent = slow ? 'Ouça (devagar)…' : 'Ouça…';
+    playMain(FULL.a[60], Math.max(0, (4 + b0) * (60 / bp) + offS()), 'ouvir', null);
+    try { A.main.playbackRate = rate; A.main.preservesPitch = true; A.main.webkitPreservesPitch = true; } catch (e) {}
+    const t = () => { if (my !== run) return; const beat = (A.main.currentTime - offS()) / (60 / bp) - 4; paint(beat); if (beat >= b1) { A.main.pause(); $('oGo').textContent = '↺ Ouvir de novo'; $('oSay').textContent = 'Agora tente: toque em “Agora eu canto”.'; return; } raf = requestAnimationFrame(t); }; t();
+  }
+  async function you() {
+    const o = L[i]; if (!o) return; stopAll(); const my = ++run, spb = 60 / 60 / (slow ? 0.8 : 1);
+    $('oYou').textContent = '■ Parar';
+    playNote(o.words[0][0].ms[0], true);   // nota de entrada
+    $('oSay').textContent = 'Nota de entrada…'; await new Promise(r => setTimeout(r, 1200)); if (my !== run) return;
+    beeps(60 / spb, 3);
+    for (const c of ['3', '2', '1']) { if (my !== run) return; $('oSay').textContent = 'Prepare-se… ' + c; await new Promise(r => setTimeout(r, spb * 1000)); }
+    if (my !== run) return;
+    $('oSay').textContent = '🎤 CANTE AGORA — siga a barra'; $('oSay').classList.add('you');
+    const t0 = performance.now(), b0 = o.b0, b1 = o.b1 + 0.3;
+    const t = () => { if (my !== run) return; const beat = b0 + (performance.now() - t0) / 1000 / spb; paint(beat); if (beat >= b1) { $('oSay').classList.remove('you'); $('oSay').textContent = 'Muito bem! Repita ou vá para a próxima frase.'; $('oYou').textContent = '🎤 Cantar de novo'; return; } raf = requestAnimationFrame(t); }; t();
+  }
+  stoppers.add(stop);
+  $('oGo').onclick = () => { if ($('oGo').textContent.startsWith('■')) { stop(); return; } listen(); };
+  $('oYou').onclick = () => { if ($('oYou').textContent.startsWith('■')) { stop(); return; } you(); };
+  $('oPrev').onclick = () => { if (i > 0) { i--; render(); } };
+  $('oNext').onclick = () => { if (i < L.length - 1) { i++; render(); } };
+  $('oSlow').onclick = () => { slow = !slow; $('oSlow').setAttribute('aria-pressed', slow); };
+  $('oLetra').onclick = () => show('musicas');
+  if ($('oSong')) {
+    const sel = $('oSong'); sel.innerHTML = ''; [...SONGS].sort((a, b) => a.title.localeCompare(b.title)).forEach(x => { const op = document.createElement('option'); op.value = x.id; op.textContent = x.title; op.selected = PACK && x.id === PACK.id; sel.appendChild(op); });
+    sel.onchange = () => { try { localStorage.setItem('coral-cur', sel.value); } catch (e) {} location.hash = '#ouvir'; location.reload(); };
+  }
+  return { open() { if (!loaded) load(); else render(); }, stop };
 })();
 
 /* ================= MINI-AULAS ================= */
@@ -1582,12 +1685,12 @@ LESSONS.forEach(L => {
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 $('install').hidden = standalone;
 rSet(); drawRange(); renderDiary();
-show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio','eco'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : 'hoje');
+show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio','eco','ouvir'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : (PACK ? 'ouvir' : 'hoje'));
 addEventListener('resize', () => fit());
 // segundo plano / tela bloqueada / troca de app: para som, gravação e microfone
 function stopEverything() { stopAll(); try { gameStop(); } catch (e) {} try { tunerOff(); } catch (e) {} try { rMicOff(); } catch (e) {} Mic.stop(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopEverything(); });
 window.addEventListener('pagehide', stopEverything);
 // acesso só para os testes automáticos (abrir o app com ?teste)
-if (/[?&]teste\b/.test(location.search)) window.__coral = { G, E, Mic, Store, gRange, A, get view() { return view; } };
+if (/[?&]teste\b/.test(location.search)) window.__coral = { G, E, Mic, Store, gRange, A, Ouvir, get view() { return view; } };
 })();

@@ -47,6 +47,30 @@ header .song{color:var(--muted);font-weight:600}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;min-width:0}
 .panel h2{font-family:var(--f-display);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted)}
 .panel.alert{border-color:var(--red)}
+/* Ouvir */
+.orowtop{align-items:center}
+.orowtop select{flex:1;min-width:0;font:600 16px var(--f-body);padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.obox{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0 6px;padding:6px 2px 10px}
+.orow{display:flex;align-items:flex-end;gap:4px;width:max-content;min-width:100%}
+.ocell{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;background:none;border:0;padding:4px 2px;font:inherit;color:inherit;cursor:pointer;border-radius:8px;flex:none}
+.ocell .ars{font-size:15px;line-height:1;min-height:15px;letter-spacing:-.05em}
+.ocell .otx{font:600 22px var(--f-body);line-height:1.1;white-space:nowrap}
+.ocell.on{background:var(--red-soft)} .ocell.on .otx{color:var(--red)} .ocell.done .otx{color:var(--muted)}
+.obar{position:relative;display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden}
+.obar i{background:var(--silver);border-radius:3px;display:block}
+.obar em{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--red);border-radius:5px;opacity:.85}
+.orest{flex:none;align-self:stretch;display:flex;align-items:flex-end;justify-content:center;border-bottom:2px dashed var(--line);margin-bottom:5px}
+.orest span{font-size:11px;color:var(--muted);padding-bottom:4px}
+.olegend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);margin:4px 0 10px}
+.olegend .ar{font-size:15px}
+.olg-bar{display:inline-block;width:26px;height:8px;border-radius:4px;background:var(--silver);vertical-align:middle;margin-right:4px}
+.olg-rest{display:inline-block;width:22px;border-bottom:2px dashed var(--silver);vertical-align:middle;margin-right:4px}
+/* conferência da letra */
+.lsbody .chk{display:inline-block;min-width:1.3em;font-weight:800;margin-right:4px;font-size:.8em}
+.lsbody .chk-ok .chk{color:var(--ok)} .lsbody .chk-dif .chk{color:var(--red)} .lsbody .chk-nf .chk{color:var(--muted)}
+.lsbody .lsorig{font-size:13px;color:var(--red);margin:-.4em 0 .8em}
+.lsbody .chksum{margin:0 0 12px}
+
 .pdfconf{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
 .pdfconf .panel{max-width:560px;width:100%;max-height:90vh;overflow:auto;margin:0}
 .pdfconf .thumb{margin:10px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
@@ -264,14 +288,15 @@ body.insess .wrap{padding-bottom:150px}
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Seções">
-    <button role="tab" data-v="hoje" aria-selected="true">Hoje</button>
-    <button role="tab" data-v="musicas" aria-selected="false">Músicas</button>
+    <button role="tab" data-v="ouvir" aria-selected="true">Ouvir</button>
     <button role="tab" data-v="eco" aria-selected="false">Cantar</button>
-    <button role="tab" data-v="jogo" aria-selected="false">Jogo</button>
     <button role="tab" data-v="ensaio" aria-selected="false">Ensaio</button>
-    <button role="tab" data-v="aulas" aria-selected="false">Aulas</button>
-    <button role="tab" data-v="corrigir" aria-selected="false">Corrigir</button>
-    <button role="tab" data-v="diario" aria-selected="false">Diário</button>
+    <button role="tab" data-v="hoje" aria-selected="false" class="adv">Hoje</button>
+    <button role="tab" data-v="musicas" aria-selected="false" class="adv">Letra</button>
+    <button role="tab" data-v="jogo" aria-selected="false" class="adv">Jogo</button>
+    <button role="tab" data-v="aulas" aria-selected="false" class="adv">Aulas</button>
+    <button role="tab" data-v="corrigir" aria-selected="false" class="adv">Corrigir</button>
+    <button role="tab" data-v="diario" aria-selected="false" class="adv">Diário</button>
     <button role="tab" data-v="treinar" aria-selected="false" class="adv">Trechos</button>
     <button role="tab" data-v="afinador" aria-selected="false" class="adv">Afinador</button>
     <button role="tab" data-v="aquecer" aria-selected="false" class="adv">Aquecer</button>
@@ -281,10 +306,26 @@ body.insess .wrap{padding-bottom:150px}
 
   <div class="nowbox" id="nowBox" hidden></div>
 
+  <!-- OUVIR -->
+  <section class="view" id="v-ouvir" hidden>
+    <div class="panel">
+      <div class="row orowtop"><select id="oSong" aria-label="Música"></select><button class="btn" id="oLetra">Letra completa</button></div>
+      <h2 id="oPart"></h2>
+      <p class="lead" id="oNum"></p>
+      <p class="msg" id="oNoLyr" hidden>Sem letra ainda: coloque o PDF da partitura em Mais › Letra. Por enquanto aparecem só as notas (•).</p>
+      <div class="obox" id="oBox"></div>
+      <div class="olegend"><span><b class="ar up">↑</b> sobe</span><span><b class="ar up2">⇈</b> sobe muito</span><span><b class="ar dn">↓</b> desce</span><span><b class="ar dn2">⇊</b> desce muito</span><span><b class="ar eq">=</b> mesma nota</span><span><i class="olg-bar"></i> quanto tempo segurar</span><span><i class="olg-rest"></i> pausa (não cante)</span></div>
+      <div class="ebig" id="oSay">&nbsp;</div>
+      <div class="row"><button class="btn pri bigbtn" id="oGo">▶ Ouvir a frase</button><button class="btn" id="oSlow" aria-pressed="false">🐢 Devagar</button></div>
+      <div class="row"><button class="btn pri" id="oYou">🎤 Agora eu canto</button></div>
+      <div class="row"><button class="btn" id="oPrev">◀ Frase anterior</button><button class="btn" id="oNext">Próxima frase ▶</button></div>
+    </div>
+  </section>
+
   <!-- MÚSICAS -->
   <section class="view" id="v-musicas" hidden>
     <div class="panel">
-      <h2>Músicas</h2>
+      <h2>Letra das músicas</h2>
       <div class="row lssongs" id="lsSongs"></div>
       <div class="row"><label class="file btn"><input type="file" id="lsPdfs" accept="application/pdf,.pdf" multiple>📄 Colocar as partituras (pode marcar todas)</label></div>
       <p class="lead" id="lsPdfMsg"></p>
@@ -294,11 +335,12 @@ body.insess .wrap{padding-bottom:150px}
       <div class="row" id="lsTools">
         <button class="btn" id="lsSmall" aria-label="Letra menor">A−</button>
         <button class="btn" id="lsBig" aria-label="Letra maior">A+</button>
-        <button class="btn" id="lsEdit">✎ Escrever/colar a letra</button>
+        <button class="btn" id="lsWeb">🔎 Procurar a letra na internet</button>
+        <button class="btn" id="lsEdit">✎ Colar e conferir a letra</button>
         <button class="btn pri" id="lsOpen">🎤 Treinar esta música</button>
       </div>
       <div id="lsEd" class="lyred" hidden>
-        <p class="lead">Cole aqui a letra certa (de um site de letras ou a que o professor mandou). Não precisa estar na mesma ordem nem com as repetições: o app encontra cada frase, arruma as palavras e mantém as setas. Fica salvo só neste iPhone.</p>
+        <p class="lead">Toque em “Procurar a letra na internet”, abra a letra num site confiável, copie e cole aqui. O app confere cada frase com a partitura (✓ igual, ≠ diferente, ? não encontrada), arruma as palavras e mantém as setas. Não precisa estar na mesma ordem nem com as repetições. Fica salvo só neste iPhone.</p>
         <textarea id="lsTa" rows="14" aria-label="Letra" placeholder="Cole a letra aqui"></textarea>
         <div class="row"><button class="btn pri" id="lsSave">Salvar</button><button class="btn" id="lsClear">Voltar para a letra da partitura</button><button class="btn" id="lsFromPdf">Trazer a letra da partitura para corrigir à mão</button></div>
       </div>
