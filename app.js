@@ -219,15 +219,18 @@ function micError(e) {
 }
 
 /* ================= Desenho das linhas da letra ================= */
+// "vou" esticado em 3 notas = vou · ou · ou (a vogal continua soando). Sem vogal reconhecível, repete a sílaba.
+function vowelOf(t) { const m = /[aeiouáéíóúâêôãõàüy]+(?=[^aeiouáéíóúâêôãõàüy]*$)/i.exec(t || ''); return m ? m[0].toLowerCase() : (t || ''); }
 function rangeOf(lines) { const ms = lines.flat().map(e => e.m); const lo = Math.min(...ms), hi = Math.max(...ms); return { hi, span: Math.max(hi - lo, 1) }; }
 function drawLine(line, rg, opt) {
-  const ln = document.createElement('div'); ln.className = 'ln'; const els = []; let prev = opt.prev || null;
+  const ln = document.createElement('div'); ln.className = 'ln'; const els = []; let prev = opt.prev || null, lastReal = opt.prev && opt.prev !== '~' ? opt.prev : '';
   const h = opt.big ? 52 : 42;
   line.forEach((e, i) => {
     const b = document.createElement('span'); b.className = 'syl' + (e.br ? ' br' : '');
     const y = Math.round((rg.hi - e.m) / rg.span * h);
     b.style.flex = (0.6 + e.d) + ' 1 auto'; b.style.paddingTop = y + 'px'; b.style.setProperty('--y', y + 'px');
-    const txt = (e.s === '~' || (e.s === prev && e.s === 'hum')) ? '~' : e.s; if (txt === '~') b.classList.add('mel'); prev = e.s;
+    const ext = e.s === '~' || (e.s === prev && e.s === 'hum');
+    const txt = ext ? vowelOf(lastReal) : e.s; if (ext) b.classList.add('mel'); else if (e.s && e.s !== '•') lastReal = e.s; prev = e.s;
     const t = document.createElement('span'); t.className = 't'; t.textContent = txt; b.appendChild(t);
     if (e.d >= 1) { const hh = document.createElement('span'); hh.className = 'h'; b.appendChild(hh); }
     const nn = document.createElement('span'); nn.className = 'nn'; nn.textContent = NOTES[e.m].n; b.appendChild(nn);
@@ -1662,20 +1665,23 @@ const Ouvir = (() => {
     const unit = Math.max(46, Math.min(80, avail / total));   // pixels por tempo (frase longa: a linha rola para o lado)
     const row = document.createElement('div'); row.className = 'orow'; let prevEnd = o.b0;
     // escadinha: quanto mais aguda a nota, mais alto a sílaba aparece (igual a uma escada que sobe e desce)
-    const ms = syl.map(x => x.sy.ms[0]), hi = Math.max(...ms), lo = Math.min(...ms), span = Math.max(hi - lo, 4), H = 64;
+    const ms = syl.flatMap(x => x.sy.ms), hi = Math.max(...ms), lo = Math.min(...ms), span = Math.max(hi - lo, 4), H = 64;
     syl.forEach(({ sy, hy }) => {
-      const b = sy.nb[0].b, last = sy.nb[sy.nb.length - 1], end = last.b + last.d;
-      if (b - prevEnd > 0.05) { const g = document.createElement('div'); g.className = 'orest'; g.style.width = Math.round((b - prevEnd) * unit) + 'px'; g.innerHTML = '<span>pausa</span>'; row.appendChild(g); }
-      prevEnd = end;
-      const c = document.createElement('button'); c.type = 'button'; c.className = 'ocell'; c.style.minWidth = Math.round((end - b) * unit) + 'px';
-      c.style.paddingTop = Math.round((hi - sy.ms[0]) / span * H) + 'px';
-      const tx = document.createElement('span'); tx.className = 'otx'; tx.textContent = sy.t + (hy ? '-' : '');
-      const bar = document.createElement('span'); bar.className = 'obar'; bar.style.width = Math.max(8, Math.round((end - b) * unit) - 4) + 'px';
-      sy.nb.forEach(n => { const seg = document.createElement('i'); seg.style.flex = n.d + ' 1 0'; bar.appendChild(seg); });
-      const fill = document.createElement('em'); bar.appendChild(fill);
-      c.append(tx, bar);
-      c.onclick = () => { if (sy.ms.length > 1) playSeq(sy.ms, 450); else playNote(sy.ms[0]); };
-      row.appendChild(c); cells.push({ el: c, fill, b, end });
+      sy.nb.forEach((n, j) => {
+        const b = n.b, end = n.b + n.d, last = j === sy.nb.length - 1;
+        if (b - prevEnd > 0.05) { const g = document.createElement('div'); g.className = 'orest'; g.style.width = Math.round((b - prevEnd) * unit) + 'px'; g.innerHTML = '<span>pausa</span>'; row.appendChild(g); }
+        prevEnd = end;
+        const c = document.createElement('button'); c.type = 'button'; c.className = 'ocell' + (j ? ' oext' : '') + (!last ? ' ocont' : ''); c.style.minWidth = Math.round(n.d * unit) + 'px';
+        c.style.paddingTop = Math.round((hi - n.m) / span * H) + 'px';
+        const tx = document.createElement('span'); tx.className = 'otx';
+        tx.textContent = j === 0 ? sy.t + (hy && last ? '-' : '') : vowelOf(sy.t) + (hy && last ? '-' : '');
+        const bar = document.createElement('span'); bar.className = 'obar'; bar.style.width = Math.max(8, Math.round(n.d * unit) - 4) + 'px';
+        const seg = document.createElement('i'); seg.style.flex = '1 1 0'; bar.appendChild(seg);
+        const fill = document.createElement('em'); bar.appendChild(fill);
+        c.append(tx, bar);
+        c.onclick = () => playNote(n.m);
+        row.appendChild(c); cells.push({ el: c, fill, b, end });
+      });
     });
     box.appendChild(row);
     const first = syl[0] && syl[0].sy.nb[0].b, lead = first - o.b0;
@@ -1722,9 +1728,8 @@ const Ouvir = (() => {
         const exp = PRE * spb, on = AN.onset(tr, exp - 1.2 * spb, exp + 1.5 * spb);
         const hint = (on != null ? on : exp) - 4 * spb;
         const g = AN.grade(tr, notes, spb, hint, on != null ? 0.15 : 0.6); if (my !== run) return;
-        // cor de cada sílaba = pior nota dela
-        const rank = { none: 0, low: 1, high: 1, near: 2, ok: 3 }, st = syl.map(() => 'ok');
-        g.per.forEach((pp, k) => { const c = own[k]; if (rank[pp.status] < rank[st[c]]) st[c] = pp.status; });
+        // cor de cada casinha = resultado daquela nota
+        const st = g.per.map(pp => pp.status);
         // Tenor cantando uma oitava acima (ou abaixo) da parte: é erro, mesmo que a "nota" pareça a mesma
         const octOff = g.heard >= notes.length * 0.3 ? g.oct : 0;
         cells.forEach((c, k) => c.el.classList.add(octOff && (st[k] === 'ok' || st[k] === 'near') ? 'g-oct' : 'g-' + st[k]));
@@ -1751,15 +1756,17 @@ const Ouvir = (() => {
     const o = L[i]; if (!o) return; stopAll(); const my = ++run, gap = slow ? 1400 : 1000;
     $('oStep').textContent = '■ Parar';
     const syl = []; o.words.forEach(w => w.forEach(sy => syl.push(sy)));
+    let ci = 0;
     for (let k = 0; k < syl.length; k++) {
-      const sy = syl[k], c = cells[k];
-      for (let j = 0; j < sy.ms.length; j++) {
+      const sy = syl[k];
+      for (let j = 0; j < sy.ms.length; j++, ci++) {
         if (my !== run) return;
-        const d = sy.mv[j]; cells.forEach(x => x.el.classList.remove('on')); c && c.el.classList.add('on');
-        $('oSay').textContent = '“' + sy.t + '” · ' + (k === 0 && j === 0 ? 'primeira nota' : d >= 3 ? 'sobe bastante ⇈' : d > 0 ? 'sobe ↑' : d <= -3 ? 'desce bastante ⇊' : d < 0 ? 'desce ↓' : 'mesma nota =');
+        const d = sy.mv[j], c = cells[ci]; cells.forEach(x => x.el.classList.remove('on')); c && c.el.classList.add('on');
+        const word = j === 0 ? sy.t : vowelOf(sy.t) + ' (continua “' + sy.t + '”)';
+        $('oSay').textContent = '“' + word + '” · ' + (k === 0 && j === 0 ? 'primeira nota' : d >= 3 ? 'sobe bastante' : d > 0 ? 'sobe' : d <= -3 ? 'desce bastante' : d < 0 ? 'desce' : 'mesma nota');
         noteNow(sy.ms[j]); await new Promise(r => setTimeout(r, gap));
+        c && c.el.classList.add('done');
       }
-      c && c.el.classList.add('done');
     }
     if (my !== run) return; cells.forEach(x => x.el.classList.remove('on', 'done'));
     $('oStep').textContent = '1 · Notas uma a uma'; $('oSay').textContent = 'Agora ouça a frase inteira, no ritmo.';
