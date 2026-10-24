@@ -21,12 +21,23 @@ const AN = (() => {
     return { m: 69 + 12 * Math.log2(sr / tt / 440), c: 1 - b };
   }
 
-  async function track(x, onProgress) {
-    const n = Math.max(0, Math.floor((x.length - WIN) / HOP)), out = new Float32Array(n);
+  // Limiares calibrados com testes sintéticos (silêncio, voz baixa, ruído, vazamento do fone) — ver testes/analysis.test.js
+  const MIN_CONF = 0.86;     // confiança mínima do YIN por quadro (0,9 descartava voz real com ruído de ~11 dB SNR)
+  const REL_ENERGY = 0.08;   // quadro com energia < 8% (≈ -22 dB) da voz mais forte da gravação é descartado (vazamento/ruído de fundo)
+  async function track(x, onProgress, opt) {
+    const minConf = opt && opt.minConf != null ? opt.minConf : MIN_CONF, rel = opt && opt.relEnergy != null ? opt.relEnergy : REL_ENERGY;
+    const n = Math.max(0, Math.floor((x.length - WIN) / HOP)), out = new Float32Array(n), conf = new Float32Array(n), en = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      out[i] = yinFrame(x, SR, i * HOP, WIN).m;
+      const r = yinFrame(x, SR, i * HOP, WIN); out[i] = r.m; conf[i] = r.c;
+      let e = 0; for (let j = 0; j < WIN; j += 2) e += x[i * HOP + j] * x[i * HOP + j]; en[i] = e / (WIN / 2);
       if (onProgress && i % 300 === 0) { onProgress(i / n); await new Promise(r => setTimeout(r)); }
     }
+    // energia de referência: percentil 95 dos quadros com altura detectada
+    const ve = []; for (let i = 0; i < n; i++) if (out[i] === out[i]) ve.push(en[i]);
+    ve.sort((p, q) => p - q); const ref = ve.length ? ve[Math.floor(ve.length * 0.95)] : 0;
+    let dropped = 0;
+    for (let i = 0; i < n; i++) if (out[i] === out[i] && (conf[i] < minConf || en[i] < ref * rel)) { out[i] = NaN; dropped++; }
+    out.conf = conf; out.dropped = dropped;
     return out;
   }
   function pcDist(a, b) { let d = ((a - b) % 12 + 12) % 12; return d > 6 ? 12 - d : d; }
@@ -64,10 +75,13 @@ const AN = (() => {
     per.forEach(p => {
       if (!p.ok) { p.status = 'none'; return; }
       let c = (p.diff - 12 * oct) * 100;
-      p.jump = Math.abs(c) > 600; if (p.jump) c = ((c % 1200) + 1800) % 1200 - 600;
-      p.cents = Math.round(c); n++; sum += c;
-      const ac = Math.abs(c);
-      p.status = ac <= 35 ? 'ok' : ac <= 80 ? 'near' : (c > 0 ? 'high' : 'low');
+      // Deslocamento de oitava da gravação INTEIRA é tolerado (oct acima). Uma nota isolada numa oitava diferente
+      // das vizinhas NÃO conta como afinada: vira "alta"/"baixa" e fica marcada como salto de oitava (p.octJump).
+      p.octJump = Math.abs(c) > 600;
+      const cIn = p.octJump ? ((c % 1200) + 1800) % 1200 - 600 : c;   // desvio dentro da oitava (só informativo)
+      p.cents = Math.round(cIn); n++; sum += cIn;
+      const ac = Math.abs(cIn);
+      p.status = p.octJump ? (c > 0 ? 'high' : 'low') : ac <= 35 ? 'ok' : ac <= 80 ? 'near' : (c > 0 ? 'high' : 'low');
       if (p.status === 'ok') good++; else if (p.status === 'near') near++;
     });
     // ---- ritmo: só nas notas que mudam de altura ou vêm depois de pausa (onde dá para ouvir a entrada)

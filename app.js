@@ -20,8 +20,90 @@ const SongDB = {
   async put(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').put(v); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
   async getPdf(id) { const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('pdfs').objectStore('pdfs').get(id); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); },
   async putPdf(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('pdfs', 'readwrite'); t.objectStore('pdfs').put(v); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
-  async del(id) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').delete(id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+  async del(id) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('songs', 'readwrite'); t.objectStore('songs').delete(id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
+  async allPdfs() { const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('pdfs').objectStore('pdfs').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); }); },
+  // grava músicas e PDFs numa transação só: ou entra tudo, ou nada (clear = substitui tudo)
+  async write(songs, pdfs, clear) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const t = db.transaction(['songs', 'pdfs'], 'readwrite'), S = t.objectStore('songs'), P = t.objectStore('pdfs');
+      if (clear) { S.clear(); P.clear(); }
+      (songs || []).forEach(v => S.put(v)); (pdfs || []).forEach(v => P.put(v));
+      t.oncomplete = () => res(); t.onerror = () => rej(t.error || new Error('gravação')); t.onabort = () => rej(t.error || new Error('gravação cancelada'));
+    });
+  },
+  // apaga a música e a partitura dela juntas
+  async delSong(id) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction(['songs', 'pdfs'], 'readwrite'); t.objectStore('songs').delete(id); t.objectStore('pdfs').delete(id); t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); }
 };
+
+/* ================= DADOS: validação, chaves e ciclo do dia ================= */
+// Todas as chaves deste app no aparelho começam com "coral-". Por música: progresso, letra por trecho e letra colada.
+const LS = {
+  storeKey: id => 'coral-tenor-v1' + (id && id !== 'maracangalha' ? ':' + id : ''),
+  songKeys: id => [LS.storeKey(id), 'coral-lyr:' + id, 'coral-letra:' + id],
+  idOfKey(k) { if (k === 'coral-tenor-v1') return 'maracangalha'; const m = /^coral-(?:tenor-v1|lyr|letra):(.+)$/.exec(k); return m ? m[1] : null; },
+  all() { const o = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('coral-')) o[k] = localStorage.getItem(k); } } catch (e) {} return o; }
+};
+const isNum = v => typeof v === 'number' && isFinite(v);
+const isAudio = v => typeof v === 'string' && /^data:audio\/[a-z0-9.+-]+;base64,/i.test(v) && v.length > 100;
+// Confere a música por inteiro antes de gravar. Devolve null se estiver tudo certo, ou o motivo.
+function songProblem(j) {
+  try {
+    if (!j || j.app !== 'coral-song') return 'não é uma música do app';
+    if (typeof j.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,60}$/.test(j.id)) return 'identificação inválida';
+    if (typeof j.title !== 'string' || !j.title.trim()) return 'sem título';
+    const evOk = e => e && isNum(e.m) && e.m >= 24 && e.m <= 108 && isNum(e.b) && e.b >= 0 && isNum(e.d) && e.d > 0;
+    const measOk = (meas, len) => meas == null || (Array.isArray(meas) && meas.every(x => Array.isArray(x) && x.length >= 3 && isNum(x[1]) && isNum(x[2]) && x[2] > x[1] && x[1] >= 0 && x[2] <= len + 1e-3));
+    const aOk = a => a && isAudio(a[60]) && isAudio(a[80]);
+    if (!Array.isArray(j.secs) || !j.secs.length) return 'sem trechos';
+    const ids = new Set();
+    for (const s of j.secs) {
+      if (!s || typeof s.id !== 'string' || ids.has(s.id)) return 'trecho sem identificação'; ids.add(s.id);
+      if (!Array.isArray(s.lines) || !s.lines.length || !s.lines.every(l => Array.isArray(l) && l.length && l.every(evOk))) return 'notas inválidas no trecho ' + s.id;
+      if (!isNum(s.len) || s.len <= 0 || !measOk(s.meas, s.len) || !aOk(s.a)) return 'tempo ou áudio inválido no trecho ' + s.id;
+    }
+    const F = j.full;
+    if (!F || !Array.isArray(F.lines) || !F.lines.length || !F.lines.every(l => l && Array.isArray(l.ev) && l.ev.every(evOk))) return 'ensaio completo inválido';
+    if (!isNum(F.len) || F.len <= 0 || !measOk(F.meas, F.len) || !aOk(F.a)) return 'tempo ou áudio do ensaio inválido';
+    if (!Array.isArray(F.blocks) || !F.blocks.every(b => b && typeof b.label === 'string' && isNum(b.start) && isNum(b.end) && b.end >= b.start)) return 'partes do ensaio inválidas';
+    if (j.score != null) {
+      const sc = j.score; if (!sc.boxes || typeof sc.boxes !== 'object' || !Number.isInteger(sc.pages) || sc.pages < 1) return 'mapa da partitura inválido';
+      for (const b of Object.values(sc.boxes)) if (!b || !Number.isInteger(b.p) || b.p < 1 || b.p > sc.pages || !(b.x0 >= 0 && b.x1 <= 1.0001 && b.x1 > b.x0 && b.y0 >= 0 && b.y1 <= 1.0001 && b.y1 > b.y0)) return 'mapa da partitura inválido';
+    }
+    if (j.prof != null) {
+      if (!isAudio(j.prof.a) || !Array.isArray(j.prof.map) || j.prof.map.length < 2) return 'áudio do professor inválido';
+      for (let i = 0; i < j.prof.map.length; i++) { const r = j.prof.map[i]; if (!Array.isArray(r) || !isNum(r[0]) || !isNum(r[1]) || (i && r[0] < j.prof.map[i - 1][0])) return 'sincronia do professor inválida'; }
+    }
+    if (j.range && !(isNum(j.range.lo) && isNum(j.range.hi))) return 'extensão inválida';
+    return null;
+  } catch (e) { return 'arquivo com formato inesperado'; }
+}
+function b64ToBuf(b64) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
+function bufToB64(buf) { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+function isPdfBuf(buf) { const u = new Uint8Array(buf, 0, Math.min(1024, buf.byteLength)); let t = ''; for (let i = 0; i < u.length; i++) t += String.fromCharCode(u[i]); return t.indexOf('%PDF-') >= 0; }
+async function pdfPages(buf) { const lib = await Score.lib(); const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise; return doc.numPages; }
+// confere um PDF que vai junto com uma música (pacote ou backup)
+async function pdfProblem(buf, song) {
+  if (!buf || !buf.byteLength || !isPdfBuf(buf)) return 'não é um PDF';
+  if (song && song.score) { let n; try { n = await pdfPages(buf); } catch (e) { return 'PDF danificado'; } if (n !== song.score.pages) return 'o PDF tem ' + n + ' página(s) e a partitura de ' + song.title + ' tem ' + song.score.pages; }
+  return null;
+}
+const yieldUI = () => new Promise(r => setTimeout(r, 30));
+const mb = n => (n / 1048576).toFixed(1).replace('.', ',') + ' MB';
+// lê um arquivo JSON grande avisando cada etapa; erro de memória vira mensagem compreensível
+async function readJsonFile(f, say) {
+  say('Lendo o arquivo (' + mb(f.size) + ')… isso pode levar alguns segundos.'); await yieldUI();
+  let txt; try { txt = await f.text(); } catch (e) { throw new Error('Não consegui ler o arquivo. Se ele for muito grande, feche outros apps e tente de novo.'); }
+  say('Abrindo o conteúdo…'); await yieldUI();
+  try { return JSON.parse(txt); } catch (e) { throw new Error(e instanceof RangeError ? 'O arquivo é grande demais para a memória do aparelho agora. Feche outros apps e tente de novo.' : 'Esse arquivo não é do app Coral (ou está incompleto).'); }
+}
+// Ciclo do treino: o "dia" do app vai das 04:00 às 03:59 do horário do aparelho.
+// Assim um treino feito à noite (inclusive depois da meia-noite) fica no mesmo dia, e música, aula, aquecimento,
+// marcações e tempo de treino usam sempre a mesma chave.
+const CYCLE_START_H = 4;
+function cycleDate(t) { const d = new Date(t == null ? Date.now() : t); if (d.getHours() < CYCLE_START_H) d.setDate(d.getDate() - 1); return d; }
+function cycleKey(t) { const d = cycleDate(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function cycleIndex(t) { const d = cycleDate(t); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); }
 async function pdfBytes(rec) { if (rec.buf) return new Uint8Array(rec.buf.slice(0)); return new Uint8Array(await rec.blob.arrayBuffer()); }
 let SONGS = []; try { SONGS = await SongDB.all(); } catch (e) {}
 let curId = null; try { curId = localStorage.getItem('coral-cur'); } catch (e) {}
@@ -32,11 +114,12 @@ const SONG = PACK && PACK.range ? PACK.range : { lo: 45, hi: 59, introHi: 66 }; 
 let bpm = 60, mode = 'nota';
 
 /* ================= Armazenamento (só neste aparelho) ================= */
-const KEY = 'coral-tenor-v1' + (PACK && PACK.id !== 'maracangalha' ? ':' + PACK.id : '');
+const KEY = LS.storeKey(PACK ? PACK.id : null);
 const Store = {
   d: { status: {}, log: [], results: [], alcance: null, days: {} },
   load() { try { const t = localStorage.getItem(KEY); if (t) this.d = Object.assign(this.d, JSON.parse(t)); } catch (e) {} },
-  save() { try { localStorage.setItem(KEY, JSON.stringify(this.d)); } catch (e) {} }
+  lock: false,
+  save() { if (this.lock) return; try { localStorage.setItem(KEY, JSON.stringify(this.d)); } catch (e) {} }
 };
 Store.load();
 
@@ -96,12 +179,20 @@ function playSeq(list, ms) { stopAll(); list.forEach((m, i) => seqT.push(setTime
 
 /* ================= Microfone ================= */
 const Mic = {
-  on: false, ctx: null, stream: null, an: null, buf: null, proc: null, rec: null,
-  async start() {
-    if (this.on) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  on: false, ctx: null, stream: null, an: null, buf: null, proc: null, rec: null, gen: 0, _p: null,
+  start() {
+    if (this.on) return Promise.resolve(); if (this._p) return this._p;
+    const gen = this.gen;
+    this._p = this._open(gen).finally(() => { this._p = null; });
+    return this._p;
+  },
+  async _open(gen) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    if (gen !== this.gen) { stream.getTracks().forEach(t => t.stop()); const e = new Error('cancelado'); e.name = 'AbortError'; throw e; }   // alguém mandou parar enquanto o iPhone pedia o microfone
+    this.stream = stream;
     const AC = window.AudioContext || window.webkitAudioContext; this.ctx = new AC();
     try { await this.ctx.resume(); } catch (e) {}
+    if (gen !== this.gen) { try { stream.getTracks().forEach(t => t.stop()); this.ctx.close(); } catch (e) {} this.stream = null; this.ctx = null; const e = new Error('cancelado'); e.name = 'AbortError'; throw e; }
     const src = this.ctx.createMediaStreamSource(this.stream);
     this.an = this.ctx.createAnalyser(); this.an.fftSize = 2048; src.connect(this.an);
     this.proc = this.ctx.createScriptProcessor(4096, 1, 1); src.connect(this.proc);
@@ -110,14 +201,18 @@ const Mic = {
     this.buf = new Float32Array(2048); this.on = true;
   },
   stop() {
+    this.gen++;   // cancela um início que ainda esteja pedindo o microfone
     if (!this.on) return; this.on = false; this.rec = null;
     try { this.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
-    try { this.proc.onaudioprocess = null; this.ctx.close(); } catch (e) {}
+    try { this.proc.onaudioprocess = null; this.proc.disconnect(); } catch (e) {}
+    try { this.ctx.close(); } catch (e) {}
+    this.stream = null; this.proc = null; this.an = null;
     try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch (e) {}
   },
   pitch() { if (!this.on) return NaN; this.an.getFloatTimeDomainData(this.buf); const r = AN.yinFrame(this.buf, this.ctx.sampleRate, 0, this.buf.length); return r.c > 0.75 ? r.m : NaN; }
 };
 function micError(e) {
+  if (e && e.name === 'AbortError') return '';
   return (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError'))
     ? 'O microfone foi bloqueado. No iPhone: Ajustes › Safari › Microfone › Perguntar ou Permitir, e abra o app de novo.'
     : 'Não consegui ligar o microfone neste aparelho.';
@@ -156,6 +251,8 @@ function show(v) {
   if (view === 'alcance' && v !== 'alcance') rMicOff();
   if (view === 'eco' && v !== 'eco') ecoStop();
   if (view === 'jogo' && v !== 'jogo') gameStop();
+  if (view === 'corrigir' && v !== 'corrigir') stopRec(false);
+  if (v === 'eco' && PACK && !E.sec && SECS.length) { E.sec = secById(firstSec()) || SECS[0]; E.li = 0; document.querySelectorAll('#eSecs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.id === E.sec.id)); setTimeout(ecoRender, 0); }
   if (['treinar', 'afinador', 'aquecer', 'alcance'].includes(v)) document.body.classList.add('adv');
   view = v;
   document.querySelectorAll('.tabs button').forEach(b => { b.setAttribute('aria-selected', b.dataset.v === v); if (b.dataset.v === v) b.scrollIntoView({ inline: 'center', block: 'nearest' }); });
@@ -193,8 +290,9 @@ const Score = {
   async importFile(f) {
     const lib = await this.lib(); const buf = await f.arrayBuffer();
     const doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
-    if (doc.numPages !== PACK.score.pages) throw new Error('paginas');
-    await SongDB.putPdf({ id: PACK.id, buf: buf.slice(0) });
+    const r = await savePdfFor(PACK, buf, doc, f.name);
+    if (r === 'cancel') throw new Error('cancelado');
+    if (r !== 'ok' && r !== 'same') throw new Error(doc.numPages !== PACK.score.pages ? 'paginas' : r);
     this.pdf = doc; this.pages = {}; document.dispatchEvent(new Event('score-ready'));
   },
   async page(n) {
@@ -248,6 +346,39 @@ function ScoreView(box, meas, mode) {
     reset() { box.querySelectorAll('.mbox.on').forEach(d => d.classList.remove('on')); lastM = null; }
   };
 }
+// Confere se o PDF é da música: nº de páginas (obrigatório) + título no texto da 1ª página ou no nome do arquivo.
+async function pdfIdentity(doc, x, fname) {
+  const norm = t => (t || '').normalize('NFD').toLowerCase().replace(/[^a-z]/g, '');
+  const pagesOk = !x.score || doc.numPages === x.score.pages;
+  let txt = ''; try { const tc = await (await doc.getPage(1)).getTextContent(); txt = tc.items.map(i => i.str).join(''); } catch (e) {}
+  const titleOk = norm(txt + ' ' + (fname || '')).includes(norm(x.title));
+  return { pagesOk, titleOk };
+}
+// Mostra a 1ª página do PDF e pede confirmação. Resolve true/false.
+function confirmPdf(doc, x, why) {
+  return new Promise(async res => {
+    const ov = document.createElement('div'); ov.className = 'pdfconf'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    ov.innerHTML = '<div class="panel"><h2>Conferir partitura</h2><p class="msg"></p><div class="thumb"></div><div class="row"><button class="btn pri" data-a="1">Sim, é desta música</button><button class="btn" data-a="0">Cancelar</button></div></div>';
+    ov.querySelector('.msg').textContent = why + ' Veja a primeira página: ela é da música “' + x.title + '”?';
+    document.body.appendChild(ov);
+    try { const pg = await doc.getPage(1), v1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 520 / v1.width }); const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); await pg.render({ canvasContext: ctx, viewport: vp }).promise; ov.querySelector('.thumb').appendChild(c); } catch (e) { ov.querySelector('.thumb').textContent = '(não consegui mostrar a página)'; }
+    ov.querySelectorAll('button').forEach(b => b.onclick = () => { ov.remove(); res(b.dataset.a === '1'); });
+  });
+}
+const sameBuf = (a, b) => { if (!a || !b || a.byteLength !== b.byteLength) return false; const x = new Uint8Array(a), y = new Uint8Array(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
+// Grava o PDF de uma música depois de conferir. Devolve 'ok' | 'same' | 'cancel' | motivo de erro.
+async function savePdfFor(x, buf, doc, fname) {
+  const id = await pdfIdentity(doc, x, fname);
+  if (!id.pagesOk) return 'Esse PDF tem ' + doc.numPages + ' página(s), mas a partitura de ' + x.title + ' tem ' + x.score.pages + '.';
+  const old = await SongDB.getPdf(x.id).catch(() => null), oldBuf = old ? (old.buf || await old.blob.arrayBuffer()) : null;
+  if (oldBuf && sameBuf(oldBuf, buf)) return 'same';
+  if (!id.titleOk || oldBuf) {
+    const why = !id.titleOk ? 'Não encontrei o nome “' + x.title + '” neste PDF.' : 'Esta música já tem uma partitura salva e ela será substituída.';
+    if (!(await confirmPdf(doc, x, why))) return 'cancel';
+  }
+  await SongDB.putPdf({ id: x.id, buf: buf.slice(0) });
+  return 'ok';
+}
 function importer() {
   const d = document.createElement('div'); d.className = 'panel alert';
   d.innerHTML = '<h2>Partitura de ' + '<span></span></h2><p class="msg">Importe o PDF da partitura que o professor mandou. Ele fica guardado só neste iPhone. Faça isso uma vez só.</p><div class="row"><label class="file btn pri"><input type="file" accept="application/pdf,.pdf">Importar partitura (PDF)</label><span class="save"></span></div>';
@@ -255,7 +386,7 @@ function importer() {
   const inp = d.querySelector('input'), msg = d.querySelector('.save');
   inp.onchange = async ev => { const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; msg.textContent = 'Abrindo…';
     try { await Score.importFile(f); msg.textContent = 'Partitura salva ✓'; }
-    catch (e) { msg.textContent = e && e.message === 'paginas' ? 'Esse PDF não parece ser a partitura de ' + PACK.title + '. Confira o arquivo.' : 'Não consegui abrir esse PDF.'; } };
+    catch (e) { msg.textContent = e && e.message === 'cancelado' ? 'Partitura não alterada.' : e && e.message === 'paginas' ? 'Esse PDF não parece ser a partitura de ' + PACK.title + '. Confira o arquivo.' : 'Não consegui abrir esse PDF.'; } };
   return d;
 }
 
@@ -411,7 +542,7 @@ function stopRec(analyze) {
   if (!recording) return; recording = false; cancelAnimationFrame(recRaf); if (A.owner === 'rec') stopMain();
   $('cRec').disabled = false; $('cStage').hidden = true;
   const chunks = Mic.rec || [], sr = Mic.ctx ? Mic.ctx.sampleRate : 48000; Mic.rec = null;
-  if (!tTimer && !rTimer) Mic.stop();
+  if (!micBusyElsewhere('rec')) Mic.stop();
   if (analyze) analyzePCM(chunks, sr); else $('cMsg').textContent = 'Gravação cancelada.';
 }
 stoppers.add(() => stopRec(false));
@@ -419,6 +550,7 @@ $('cStop').onclick = () => stopRec(true);
 $('cRec').onclick = async () => {
   const s = secById($('cSec').value); stopAll(); $('cOut').hidden = true; $('cMsg').classList.remove('err');
   try { await Mic.start(); } catch (e) { $('cMsg').textContent = micError(e); $('cMsg').classList.add('err'); return; }
+  if (view !== 'corrigir' || document.hidden) { if (!micBusyElsewhere('rec')) Mic.stop(); return; }
   recording = true; recSec = s; recHint = null; recLine = -1; $('cRec').disabled = true;
   $('cMsg').textContent = 'Espere os 4 cliques e cante junto.';
   $('cStage').hidden = false; $('cNow').innerHTML = ''; $('cNext').innerHTML = '';
@@ -687,7 +819,7 @@ function renderDiary() {
       : 'Correção · ' + secName(x.trecho) + ' (' + (x.bpm === 60 ? 'devagar' : 'mais rápido') + '): ' + x.ok + '% afinadas' + (x.rOk != null ? ', ' + x.rOk + '% no tempo' : '') + (x.oct ? ' · oitava ' + (x.oct > 0 ? 'acima' : 'abaixo') : '');
     li.append(t, sp); ul.appendChild(li);
   });
-  const L = Store.d.log || [], tot = L.reduce((a, x) => a + (+x.min || 0), 0), days = new Set(L.map(x => x.date.slice(0, 10))).size;
+  const L = Store.d.log || [], tot = L.reduce((a, x) => a + (+x.min || 0), 0), days = new Set(L.map(x => cycleKey(x.date))).size;
   const firm = SECS.filter(s => Store.d.status[s.id] === 'firme').length;
   let sm = L.length ? days + ' dia(s) de treino, ' + tot + ' minutos no total. ' : 'Nenhum treino registrado ainda. ';
   sm += firm + ' de ' + SECS.length + ' trechos firmes.';
@@ -699,25 +831,94 @@ let dMin = 10;
 $('dMin').querySelectorAll('button').forEach(b => b.onclick = () => { dMin = +b.dataset.m; $('dMin').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
 function addLog(min, note) { Store.d.log = [{ date: new Date().toISOString(), min, note }, ...(Store.d.log || [])].slice(0, 500); Store.save(); renderDiary(); }
 $('dAdd').onclick = () => { addLog(dMin, $('dNote').value.trim().slice(0, 500)); $('dNote').value = ''; $('dAdd').textContent = 'Registrado ✓'; setTimeout(() => $('dAdd').textContent = 'Registrar treino', 1500); Day.mark('registrar'); };
+// Backup completo (v2): músicas, partituras, letras (por trecho e coladas), preferências e progresso de todas as músicas.
+const BK_APP = 'coral-tenor-backup', BK_V = 2;
 $('bkOut').onclick = async () => {
-  const name = 'Coral_Tenor_backup_' + new Date().toLocaleDateString('pt-BR').replace(/\//g, '-') + '.json';
-  const blob = new Blob([JSON.stringify({ app: 'coral-tenor', v: 1, data: Store.d }, null, 1)], { type: 'application/json' });
+  const msg = $('bkMsg'); msg.textContent = 'Preparando o backup…'; await yieldUI();
   try {
-    const file = new File([blob], name, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Backup Coral Tenor' }); $('bkMsg').textContent = 'Backup pronto ✓'; return; }
-  } catch (e) { if (e && e.name === 'AbortError') return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); $('bkMsg').textContent = 'Backup baixado ✓';
+    Store.save();
+    const songs = await SongDB.all(), pdfs = {};
+    for (const r of await SongDB.allPdfs()) { const u = await pdfBytes(r); pdfs[r.id] = bufToB64(u.buffer); }
+    const data = { app: BK_APP, v: BK_V, created: new Date().toISOString(), ls: LS.all(), songs, pdfs };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const name = 'Coral_Tenor_backup_' + new Date().toLocaleDateString('pt-BR').replace(/\//g, '-') + '.json';
+    msg.textContent = 'Backup com ' + songs.length + ' música(s) e ' + Object.keys(pdfs).length + ' partitura(s) · ' + mb(blob.size) + '.';
+    try {
+      const file = new File([blob], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Backup Coral Tenor' }); msg.textContent += ' Pronto ✓'; return; }
+    } catch (e) { if (e && e.name === 'AbortError') { msg.textContent = 'Backup cancelado.'; return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); msg.textContent += ' Baixado ✓';
+  } catch (e) { msg.textContent = 'Não consegui montar o backup: ' + ((e && e.message) || 'erro'); }
 };
-let bkPending = null;
+// Confere o backup inteiro antes de mexer em qualquer dado. Devolve { plan } ou lança erro com o motivo.
+async function checkBackup(j, say) {
+  if (j && j.app === 'coral-tenor' && j.data && typeof j.data === 'object') {   // backup antigo (v1): só o progresso de uma música
+    const d = j.data; if ((d.status && typeof d.status !== 'object') || (d.log && !Array.isArray(d.log))) throw new Error('Backup antigo danificado.');
+    return { legacy: true, data: d };
+  }
+  if (!j || j.app !== BK_APP || j.v !== BK_V || !Array.isArray(j.songs) || !j.ls || typeof j.ls !== 'object' || !j.pdfs || typeof j.pdfs !== 'object') throw new Error('Esse arquivo não é um backup do app.');
+  const ids = new Set();
+  for (const sg of j.songs) { const why = songProblem(sg); if (why) throw new Error('Música “' + ((sg && sg.title) || '?') + '” com problema: ' + why + '. Nada foi alterado.'); if (ids.has(sg.id)) throw new Error('Música repetida no backup.'); ids.add(sg.id); }
+  const pdfs = [];
+  for (const [id, b64] of Object.entries(j.pdfs)) {
+    if (!ids.has(id)) throw new Error('O backup tem uma partitura sem música (' + id + '). Nada foi alterado.');
+    say && say('Conferindo a partitura de ' + j.songs.find(x => x.id === id).title + '…'); await yieldUI();
+    let buf; try { buf = b64ToBuf(b64); } catch (e) { throw new Error('Partitura danificada no backup. Nada foi alterado.'); }
+    const why = await pdfProblem(buf, j.songs.find(x => x.id === id)); if (why) throw new Error('Partitura com problema (' + why + '). Nada foi alterado.');
+    pdfs.push({ id, buf });
+  }
+  const ls = {};
+  for (const [k, v] of Object.entries(j.ls)) {
+    if (!k.startsWith('coral-') || typeof v !== 'string') throw new Error('Dados do backup em formato inesperado. Nada foi alterado.');
+    const sid = LS.idOfKey(k);
+    if (sid != null && !ids.has(sid)) continue;   // dado de música que não está no backup: não é restaurado (evita misturar músicas)
+    if (k.startsWith('coral-tenor-v1') || k.startsWith('coral-lyr:')) { let o; try { o = JSON.parse(v); } catch (e) { throw new Error('Progresso danificado no backup. Nada foi alterado.'); } if (!o || typeof o !== 'object' || Array.isArray(o)) throw new Error('Progresso danificado no backup. Nada foi alterado.'); }
+    if (k === 'coral-cur' && !ids.has(v)) continue;
+    ls[k] = v;
+  }
+  return { songs: j.songs, pdfs, ls };
+}
+// Aplica o backup: tudo ou nada. Guarda o estado anterior e volta para ele se algo falhar.
+async function applyBackup(plan) {
+  const oldSongs = await SongDB.all(), oldPdfs = await SongDB.allPdfs(), oldLs = LS.all();
+  Store.lock = true;   // nada da tela atual pode gravar por cima enquanto restaura
+  try {
+    await SongDB.write(plan.songs, plan.pdfs, true);
+    try {
+      Object.keys(oldLs).forEach(k => localStorage.removeItem(k));
+      Object.entries(plan.ls).forEach(([k, v]) => localStorage.setItem(k, v));
+    } catch (e) {
+      try { Object.keys(LS.all()).forEach(k => localStorage.removeItem(k)); Object.entries(oldLs).forEach(([k, v]) => localStorage.setItem(k, v)); } catch (e2) {}
+      await SongDB.write(oldSongs, oldPdfs, true);
+      throw new Error('Não coube no aparelho; seus dados anteriores foram mantidos.');
+    }
+  } catch (e) { Store.lock = false; throw e; }
+}
 $('bkIn').onchange = async ev => {
-  const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
-  try { const j = JSON.parse(await f.text()); if (j.app !== 'coral-tenor' || !j.data) throw 0; bkPending = j.data; $('bkMsg').innerHTML = ''; const b = document.createElement('button'); b.className = 'btn pri'; b.textContent = 'Substituir meus dados por este backup'; b.onclick = () => { Store.d = Object.assign({ status: {}, log: [], results: [], alcance: null, days: {} }, bkPending); Store.save(); renderDiary(); drawRange(); renderDay(); $('bkMsg').textContent = 'Backup restaurado ✓'; }; $('bkMsg').appendChild(b); }
-  catch (e) { $('bkMsg').textContent = 'Esse arquivo não é um backup do app.'; }
+  const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; const msg = $('bkMsg'), say = t => { msg.textContent = t; };
+  try {
+    const j = await readJsonFile(f, say);
+    say('Conferindo o backup…'); await yieldUI();
+    const plan = await checkBackup(j, say);
+    msg.innerHTML = ''; const info = document.createElement('p'); info.className = 'lead';
+    const b = document.createElement('button'); b.className = 'btn pri';
+    if (plan.legacy) {
+      info.textContent = 'Backup antigo: tem só o progresso de uma música. Ele vai substituir o progresso de “' + (PACK ? PACK.title : 'música aberta') + '”. Músicas, partituras e letras não mudam.';
+      b.textContent = 'Restaurar o progresso';
+      b.onclick = () => { Store.d = Object.assign({ status: {}, log: [], results: [], alcance: null, days: {} }, plan.data); Store.save(); renderDiary(); drawRange(); renderDay(); msg.textContent = 'Progresso restaurado ✓'; };
+    } else {
+      const nProg = Object.keys(plan.ls).filter(k => k.startsWith('coral-tenor-v1')).length;
+      info.textContent = 'Backup conferido: ' + plan.songs.length + ' música(s), ' + plan.pdfs.length + ' partitura(s), progresso de ' + nProg + ' música(s) e letras salvas. Restaurar substitui TUDO o que está neste aparelho.';
+      b.textContent = 'Substituir meus dados por este backup';
+      b.onclick = async () => { b.disabled = true; say('Restaurando…'); try { await applyBackup(plan); msg.textContent = 'Backup restaurado ✓ Abrindo…'; setTimeout(() => location.reload(), 700); } catch (e) { b.disabled = false; msg.textContent = (e && e.message) || 'Não consegui restaurar; seus dados anteriores foram mantidos.'; } };
+    }
+    msg.append(info, b);
+  } catch (e) { msg.textContent = (e && e.message) || 'Esse arquivo não é um backup do app.'; }
 };
 
 /* ================= HOJE (treino guiado) ================= */
 const ORDER = ['1', '2', '3', '4', '5', '0'];
-const todayKey = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const todayKey = () => cycleKey();
 const Day = {
   get() { const k = todayKey(); Store.d.days = Store.d.days || {}; if (!Store.d.days[k]) { Store.d.days[k] = { done: [], listen: 0, start: null }; const ks = Object.keys(Store.d.days).sort(); while (ks.length > 60) delete Store.d.days[ks.shift()]; } return Store.d.days[k]; },
   begin() { const d = this.get(); if (!d.start) { d.start = Date.now(); Store.save(); } },
@@ -725,7 +926,7 @@ const Day = {
   unmark(key) { const d = this.get(); d.done = d.done.filter(k => k !== key); Store.save(); renderDay(); },
   listened(id) { const d = this.get(); if (id === dayTrecho()) { d.listen = (d.listen || 0) + 1; Store.save(); if (d.listen >= 2) this.mark('ouvir'); } }
 };
-function dayIndex() { return Math.floor(Date.now() / 864e5); }
+function dayIndex() { return cycleIndex(); }
 function dayTrecho() { const nf = ORDER.find(id => Store.d.status[id] !== 'firme'); return nf || ORDER[dayIndex() % ORDER.length]; }
 function dayWarm() { const opts = ['brrr', 'mi', 'longa']; return WARM.find(w => w.id === opts[dayIndex() % 3]); }
 function goTo(v, el) { show(v); const tgt = (typeof Sess !== 'undefined' && Sess.on) ? $('nowBox') : el; if (tgt) setTimeout(() => tgt.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' }), 60); }
@@ -735,12 +936,12 @@ function STEPS() { return (typeof Sess !== 'undefined' && Sess.short) ? DAYSTEPS
 function renderDay() {
   const d = Day.get(), tid = PACK ? dayTrecho() : null, s = tid ? secById(tid) : null, w2 = dayWarm(), hum = WARM.find(w => w.id === 'hum');
   const firm = SECS.filter(x => Store.d.status[x.id] === 'firme').length;
-  const dt = new Date(); $('dayTitle').textContent = 'Treino de hoje · ' + dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const dt = cycleDate(); $('dayTitle').textContent = 'Treino de hoje · ' + dt.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
   const lesson = LESSONS[dayIndex() % LESSONS.length];
   const all = [
     { k: 'resp', t: 'Respirar · 1 min', p: 'O app conta com você: puxe o ar, segure e solte devagar fazendo “sss”.', go: 'Começar', fn: () => { goTo('aquecer', $('breathCard')); startBreath(); } },
     { k: 'w:hum', t: 'Aquecer a voz · 1 min', p: 'Boca fechada, faça “hum” seguindo o som, como uma sirene suave. Sem força.', go: 'Tocar', fn: () => { goTo('aquecer', hum.card); startWarm(hum); } },
-    { k: 'jogo', t: 'Jogo: acerte 10 notas', p: 'O app toca uma nota e você canta igual até a tela ficar verde.', go: 'Jogar', fn: () => { goTo('jogo'); gameStart(); } },
+    { k: 'jogo', t: 'Jogo: acerte ' + gameTotal() + ' notas', p: 'O app toca uma nota e você canta igual até a tela ficar verde.', go: 'Jogar', fn: () => { goTo('jogo'); gameStart(); } },
     { k: 'eco', t: 'Cantar frase por frase' + (s ? ' · ' + s.t : ''), p: 'O app canta uma frase curta; depois é a sua vez de repetir. Faça pelo menos 3 frases.', go: 'Abrir', fn: () => ecoOpen(tid, 0) },
     { k: 'ensaio', t: PROF ? 'Cantar junto com o professor' : 'Cantar a música inteira', p: PROF ? 'O áudio do professor toca e a letra vai acendendo. Cante junto, sem medo de errar.' : 'A música inteira, na ordem do coral.', go: 'Tocar', fn: () => { goTo('ensaio'); startFull(null); } },
     { k: 'corrigir', t: 'Gravar e ver como foi (opcional)', p: 'De fone. O app grava sua voz e diz, em uma frase, onde melhorar.', go: 'Abrir', fn: () => { $('cSec').value = tid; goTo('corrigir'); } },
@@ -759,19 +960,17 @@ function renderDay() {
     const m = document.createElement('button'); m.className = 'btn'; m.textContent = done ? 'Desfazer' : 'Marcar feito'; m.onclick = () => done ? Day.unmark(st.k) : (Day.begin(), Day.mark(st.k)); row.appendChild(m);
     ol.appendChild(li);
   });
-  $('dayLead').textContent = next ? 'Toque em “Começar o treino de hoje” e siga os passos. Use fone de ouvido.' : 'Treino de hoje completo. Até amanhã às 21h!';
+  $('dayLead').textContent = next ? 'Toque em “Começar o treino de hoje” e siga os passos. Use fone de ouvido.' : 'Treino de hoje completo. Até amanhã! (O treino novo começa às 4h da manhã.)';
   renderToday(); Sess.paint();
 }
 
 /* ================= MÚSICAS (arquivo importado) ================= */
-async function importSong(f, msgEl) {
-  try {
-    msgEl.textContent = 'Lendo o arquivo…';
-    const j = JSON.parse(await f.text());
-    if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw new Error('formato');
-    await SongDB.put(j); try { localStorage.setItem('coral-cur', j.id); } catch (e) {}
-    msgEl.textContent = '“' + j.title + '” importada ✓ Abrindo…'; setTimeout(() => location.reload(), 600);
-  } catch (e) { msgEl.textContent = e && e.message === 'formato' ? 'Esse arquivo não é uma música do app Coral.' : 'Não consegui importar. Tente salvar o arquivo de novo e importar.'; }
+function importSong(f, msgEl) { return importSongs([f], msgEl); }
+// Remove a música e tudo o que é dela (partitura, letras, progresso e seleção), para nada reaparecer ao reimportar.
+async function removeSong(id) {
+  Store.lock = (PACK && PACK.id === id);
+  await SongDB.delSong(id);
+  try { LS.songKeys(id).forEach(k => localStorage.removeItem(k)); if (localStorage.getItem('coral-cur') === id) localStorage.removeItem('coral-cur'); } catch (e) {}
 }
 function renderSongs() {
   const ul = $('songList'); ul.innerHTML = '';
@@ -781,26 +980,41 @@ function renderSongs() {
     const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = x.title + (PACK && x.id === PACK.id ? ' · aberta' : '');
     const row = document.createElement('div'); row.className = 'row';
     if (!PACK || x.id !== PACK.id) { const o = document.createElement('button'); o.className = 'btn'; o.textContent = 'Abrir'; o.onclick = () => { try { localStorage.setItem('coral-cur', x.id); } catch (e) {} location.reload(); }; row.appendChild(o); }
-    if (PACK && x.id === PACK.id && Score.has()) { const pb = document.createElement('label'); pb.className = 'file btn'; pb.innerHTML = '<input type="file" accept="application/pdf,.pdf">📄 Partitura'; pb.querySelector('input').onchange = async ev => { const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; try { await Score.importFile(f); nm.textContent = x.title + ' · aberta · partitura ✓'; } catch (e) { nm.textContent = x.title + ' · esse PDF não confere'; } }; row.appendChild(pb); SongDB.getPdf(x.id).then(r => { if (r) nm.textContent = x.title + ' · aberta · partitura ✓'; }).catch(() => {}); }
+    if (PACK && x.id === PACK.id && Score.has()) { const pb = document.createElement('label'); pb.className = 'file btn'; pb.innerHTML = '<input type="file" accept="application/pdf,.pdf">📄 Partitura'; pb.querySelector('input').onchange = async ev => { const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; try { await Score.importFile(f); nm.textContent = x.title + ' · aberta · partitura ✓'; } catch (e) { nm.textContent = x.title + (e && e.message === 'cancelado' ? ' · partitura não alterada' : ' · esse PDF não confere'); } }; row.appendChild(pb); SongDB.getPdf(x.id).then(r => { if (r) nm.textContent = x.title + ' · aberta · partitura ✓'; }).catch(() => {}); }
     const del = document.createElement('button'); del.className = 'btn'; del.textContent = 'Remover';
-    del.onclick = () => { if (del.dataset.ok) { SongDB.del(x.id).then(() => location.reload()); } else { del.dataset.ok = 1; del.textContent = 'Toque de novo para remover'; } };
+    del.onclick = () => { if (del.dataset.ok) { removeSong(x.id).then(() => location.reload()).catch(() => { del.textContent = 'Não consegui remover'; }); } else { del.dataset.ok = 1; del.textContent = 'Toque de novo: apaga a música, a partitura, a letra e o progresso dela'; } };
     row.appendChild(del); li.append(nm, row); ul.appendChild(li);
   });
 }
 async function importSongs(files, msgEl) {
+  const say = t => { msgEl.textContent = t; };
   const ok = [], bad = [];
   for (const f of files) {
-    try { const j = JSON.parse(await f.text());
-      if (j.app === 'coral-bundle' && Array.isArray(j.songs)) {
-        for (const sg of j.songs) { if (sg.app === 'coral-song' && sg.id) { await SongDB.put(sg); ok.push(sg); } }
-        for (const [id, b64] of Object.entries(j.pdfs || {})) { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); await SongDB.putPdf({ id, buf: u.buffer }); }
-        continue;
+    try {
+      const j = await readJsonFile(f, t => say((files.length > 1 ? f.name + ': ' : '') + t));
+      say('Conferindo ' + (j && j.app === 'coral-bundle' ? 'o pacote' : 'a música') + '…'); await yieldUI();
+      if (j && j.app === 'coral-bundle') {
+        if (!Array.isArray(j.songs) || !j.songs.length) throw new Error('pacote vazio');
+        const ids = new Set();
+        for (const sg of j.songs) { const why = songProblem(sg); if (why) throw new Error('“' + ((sg && sg.title) || '?') + '”: ' + why); if (ids.has(sg.id)) throw new Error('música repetida no pacote'); ids.add(sg.id); }
+        const pdfs = [];
+        for (const [id, b64] of Object.entries(j.pdfs || {})) {
+          if (!ids.has(id)) throw new Error('partitura sem música no pacote');
+          const sg = j.songs.find(x => x.id === id); say('Conferindo a partitura de ' + sg.title + '…'); await yieldUI();
+          let buf; try { buf = b64ToBuf(b64); } catch (e) { throw new Error('partitura danificada'); }
+          const why = await pdfProblem(buf, sg); if (why) throw new Error('partitura de ' + sg.title + ': ' + why);
+          pdfs.push({ id, buf });
+        }
+        say('Gravando ' + j.songs.length + ' músicas e ' + pdfs.length + ' partituras…'); await yieldUI();
+        await SongDB.write(j.songs, pdfs, false);   // uma transação: entra tudo ou nada
+        ok.push(...j.songs); continue;
       }
-      if (j.app !== 'coral-song' || !j.id || !Array.isArray(j.secs) || !j.full) throw 0; await SongDB.put(j); ok.push(j); }
-    catch (e) { bad.push(f.name); }
+      const why = songProblem(j); if (why) throw new Error(why);
+      await SongDB.write([j], [], false); ok.push(j);
+    } catch (e) { bad.push(f.name + ' (' + ((e && e.message) || 'erro') + ')'); }
   }
-  if (ok.length) { try { if (!PACK) localStorage.setItem('coral-cur', ok[0].id); } catch (e) {} }
-  msgEl.textContent = (ok.length ? ok.length + (ok.length > 1 ? ' músicas importadas ✓' : ' música importada ✓') : '') + (bad.length ? ' · Não reconheci: ' + bad.join(', ') : '') + (ok.length ? ' Abrindo…' : '');
+  if (ok.length) { try { if (!PACK || !SONGS.some(x => x.id === localStorage.getItem('coral-cur'))) localStorage.setItem('coral-cur', ok[0].id); } catch (e) {} }
+  say((ok.length ? ok.length + (ok.length > 1 ? ' músicas importadas ✓' : ' música importada ✓') : '') + (bad.length ? (ok.length ? ' · ' : '') + 'Não importei: ' + bad.join('; ') + '. Nada desse arquivo foi gravado.' : '') + (ok.length ? ' Abrindo…' : ''));
   if (ok.length) setTimeout(() => location.reload(), 900);
 }
 ['songIn', 'songIn2'].forEach((id, i) => { const el = $(id); if (el) { el.multiple = true; el.onchange = ev => { const fs = [...ev.target.files]; ev.target.value = ''; if (fs.length) importSongs(fs, $(i ? 'songMsg2' : 'songMsg')); }; } });
@@ -854,8 +1068,8 @@ const Sess = {
   on: false,
   idx() { const d = Day.get(); const i = STEPS().findIndex(x => !d.done.includes(x.k)); return i; },
   short: false,
-  start(short) { this.short = !!short; this.on = true; Day.begin(); document.body.classList.add('insess'); this.paint(); const i = this.idx(); if (i >= 0) STEPS()[i].fn(); },
-  end() { this.on = false; document.body.classList.remove('insess'); $('sessBar').hidden = true; paintNow(); },
+  start(short) { this.short = !!short; this.on = true; Day.begin(); document.body.classList.add('insess'); renderDay(); const i = this.idx(); if (i >= 0) STEPS()[i].fn(); },
+  end() { this.on = false; this.short = false; document.body.classList.remove('insess'); $('sessBar').hidden = true; renderDay(); },
   paint() {
     paintNow();
     if (!this.on) { $('sessBar').hidden = true; return; }
@@ -875,7 +1089,8 @@ $('sessEnd').onclick = () => Sess.end();
 const E = { sec: null, li: 0, speed: 'slow', reps: 2, run: 0, raf: 0, score: null, done: 0 };
 function ecoRate() { return E.speed === 'slow' ? 0.8 : 1; }
 function ecoBpm() { return E.speed === 'fast' ? 80 : 60; }
-function ecoStop() { E.run++; cancelAnimationFrame(E.raf); if (A.owner === 'eco') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} if (Mic.rec && !recording) Mic.rec = null; $('eGo').disabled = false; $('eGo').textContent = '▶ Ouvir a frase'; $('eSay').classList.remove('you'); }
+function micBusyElsewhere(me) { return (me !== 'tuner' && typeof tTimer !== 'undefined' && !!tTimer) || (me !== 'range' && typeof rTimer !== 'undefined' && !!rTimer) || (me !== 'rec' && typeof recording !== 'undefined' && recording) || (me !== 'game' && typeof G !== 'undefined' && G.on); }
+function ecoStop() { E.run++; cancelAnimationFrame(E.raf); if (A.owner === 'eco') stopMain(); try { A.main.playbackRate = 1; } catch (e) {} if (Mic.rec && !recording) Mic.rec = null; if (!micBusyElsewhere('eco')) Mic.stop(); $('eGo').disabled = false; $('eGo').textContent = '▶ Ouvir a frase'; $('eSay').classList.remove('you'); }
 stoppers.add(ecoStop);
 function ecoRender() {
   const s = E.sec; if (!s) return; const line = s.lines[E.li];
@@ -884,6 +1099,7 @@ function ecoRender() {
   $('ePrev').disabled = E.li === 0; $('eNext').disabled = E.li >= s.lines.length - 1;
   if (Score.has() && s.meas) { E.score = ScoreView($('eScore'), s.meas, 'current'); E.score.ready.then(() => E.score.highlight(line[0].b + 0.01)); } else { $('eScore').innerHTML = ''; E.score = null; }
 }
+function firstSec() { const s = SECS.find(x => x.id !== '0') || SECS[0]; return s ? s.id : null; }
 function ecoOpen(id, li) {
   if (!PACK) { show('hoje'); return; }
   E.sec = secById(id) || SECS[0]; E.li = Math.max(0, Math.min(li || 0, E.sec.lines.length - 1));
@@ -914,7 +1130,8 @@ async function ecoCycle() {
     // 2) sua vez (mesmo tempo, em silêncio)
     E.els.forEach(({ el }) => el.classList.remove('cur', 'done'));
     let useMic = $('eMic').checked;
-    if (useMic) { try { await Mic.start(); } catch (err) { useMic = false; $('eMic').checked = false; $('eRes').textContent = micError(err); } }
+    if (useMic) { try { await Mic.start(); } catch (err) { if (my !== E.run) return; useMic = false; $('eMic').checked = false; $('eRes').textContent = micError(err); } }
+    if (my !== E.run) { if (!micBusyElsewhere('eco')) Mic.stop(); return; }
     if (!useMic) beeps(60 / spb, 3);
     for (const c of ['3', '2', '1']) { if (my !== E.run) return; $('eSay').textContent = 'Prepare-se… ' + c; $('eSay').classList.remove('you'); await new Promise(r2 => setTimeout(r2, spb * 1000)); }
     $('eSay').textContent = '🎤 CANTE AGORA!'; $('eSay').classList.add('you');
@@ -924,7 +1141,7 @@ async function ecoCycle() {
       const t = () => { if (my !== E.run) return res(); const beat = b0 + (performance.now() - t0) / 1000 / spb; karaoke(E.els, beat); if (E.score) E.score.highlight(beat); if (beat >= b1 + 0.3) return res(); E.raf = requestAnimationFrame(t); }; t();
     });
     if (useMic && my === E.run) {
-      const chunks = Mic.rec || []; Mic.rec = null; const srate = Mic.ctx.sampleRate; Mic.stop();
+      const chunks = Mic.rec || []; Mic.rec = null; const srate = Mic.ctx ? Mic.ctx.sampleRate : 48000; if (!micBusyElsewhere('eco')) Mic.stop();
       try {
         const x = await AN.pcmToMono16k(chunks, srate), tr = await AN.track(x);
         const notes = line.map(e => ({ m: e.m - 12, b: e.b - b0, d: e.d }));
@@ -943,14 +1160,22 @@ async function ecoCycle() {
 }
 
 /* ================= JOGO: ACERTE A NOTA ================= */
+function gameTotal() { return (typeof Sess !== 'undefined' && Sess.on && Sess.short) ? 5 : 10; }
 const G = { on: false, n: 0, ok: 0, target: null, prev: null, hold: 0, t0: 0, timer: 0, guard: 0 };
-function gameStop() { G.on = false; G.listen = false; clearInterval(G.timer); G.timer = 0; if (!tTimer && !rTimer && !recording) Mic.stop(); $('gStart').textContent = '▶ Começar'; $('gStart').disabled = false; $('gAgain').disabled = true; $('gSkip').disabled = true; $('v-jogo').querySelector('.gamebox').classList.remove('hit'); }
-function gRange() { const a = Store.d.alcance || {}; let lo = a.lo != null ? Math.max(45, a.lo) : 47, hi = a.hi != null ? Math.min(62, a.hi - 1) : 57; if (hi - lo < 5) { lo = 47; hi = 57; } return [lo, hi]; }
+function gameStop() { G.on = false; G.listen = false; G.target = null; clearInterval(G.timer); G.timer = 0; if (!micBusyElsewhere('game')) Mic.stop(); $('gStart').textContent = '▶ Começar'; $('gStart').disabled = false; $('gAgain').disabled = true; $('gSkip').disabled = true; $('v-jogo').querySelector('.gamebox').classList.remove('hit'); }
+// Faixa do jogo: respeita o alcance confortável medido. Sem medição, usa a região média do tenor (Dó3 a Lá3 soando).
+// Faixa medida estreita não é trocada por outra: o jogo usa só as notas dela; com menos de 2 notas, explica e não começa.
+function gRange() {
+  const a = Store.d.alcance || {};
+  if (a.lo == null || a.hi == null) return { lo: 47, hi: 57, measured: false };
+  const lo = Math.max(40, Math.round(a.lo)), hi = Math.min(69, Math.round(a.hi) - 1);
+  return { lo, hi, measured: true, narrow: hi - lo < 5, tooNarrow: hi - lo < 1 };
+}
 function gNext() {
   if (!G.on) return;
   if (G.n >= G.total) return gFinish();
-  const [lo, hi] = gRange(); let t;
-  do { t = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (G.prev != null && (t === G.prev || Math.abs(t - G.prev) > 5));
+  const { lo, hi } = gRange(); let t, tries = 0;
+  do { t = lo + Math.floor(Math.random() * (hi - lo + 1)); tries++; } while (tries < 50 && G.prev != null && (t === G.prev || Math.abs(t - G.prev) > 5));
   G.target = t; G.prev = t; G.hold = 0; G.t0 = performance.now(); G.n++;
   $('gScore').textContent = 'Nota ' + G.n + ' de ' + G.total + ' · acertos: ' + G.ok;
   $('gBig').textContent = '🎵'; $('gSay').textContent = 'Ouça a nota…'; $('gHold').style.width = '0%'; $('v-jogo').querySelector('.gamebox').classList.remove('hit');
@@ -959,7 +1184,8 @@ function gNext() {
 async function gPlayThenListen() {
   G.listen = false; if (Mic.on) Mic.stop(); noteNow(G.target + 12); const my = G.target;
   await new Promise(r => setTimeout(r, 1800)); if (!G.on || G.target !== my) return;
-  try { await Mic.start(); } catch (e) { $('gSay').textContent = micError(e); return; }
+  try { await Mic.start(); } catch (e) { if (G.on) $('gSay').textContent = micError(e); return; }
+  if (!G.on || G.target !== my) { if (!micBusyElsewhere('game')) Mic.stop(); return; }
   G.t0 = performance.now(); G.guard = 0; G.listen = true;
 }
 function gTick() {
@@ -978,8 +1204,11 @@ function gTick() {
 }
 async function gameStart() {
   stopAll();
-  try { await Mic.start(); Mic.stop(); } catch (e) { $('gSay').textContent = micError(e); return; }
-  G.on = true; G.n = 0; G.ok = 0; G.prev = null; G.total = Sess.on && Sess.short ? 5 : 10; $('gStart').textContent = 'Jogando…'; $('gStart').disabled = true; $('gAgain').disabled = false; $('gSkip').disabled = false;
+  const R = gRange();
+  if (R.tooNarrow) { $('gSay').textContent = 'O alcance salvo tem menos de 2 notas confortáveis, e o jogo precisa de pelo menos 2. Meça o alcance de novo em Mais › Alcance.'; $('gBig').textContent = '🎤'; return; }
+  $('gRangeMsg').textContent = R.measured ? ('Notas do jogo: ' + nameOf(R.lo) + ' a ' + nameOf(R.hi) + ', dentro do seu alcance confortável' + (R.narrow ? ' (faixa curta: o jogo usa só essas notas).' : '.')) : 'Você ainda não mediu seu alcance: o jogo usa notas médias de tenor. Meça em Mais › Alcance.';
+  try { await Mic.start(); if (!micBusyElsewhere('game')) Mic.stop(); } catch (e) { $('gSay').textContent = micError(e); return; }
+  G.on = true; G.n = 0; G.ok = 0; G.prev = null; G.total = gameTotal(); $('gStart').textContent = 'Jogando…'; $('gStart').disabled = true; $('gAgain').disabled = false; $('gSkip').disabled = false;
   clearInterval(G.timer); G.timer = setInterval(gTick, 80); gNext();
 }
 function gFinish() {
@@ -1001,10 +1230,10 @@ function allStores() {
   return out;
 }
 const titleOf = id => (SONGS.find(x => x.id === id) || {}).title || id;
-const dkey = d => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+const dkey = d => cycleKey(d);
 function drawEvo() {
   const c = $('evo'); if (!c) return; const ctx = c.getContext('2d'), W = c.width, H = c.height, css = getComputedStyle(document.documentElement);
-  const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(dkey(d)); }
+  const days = []; for (let i = 13; i >= 0; i--) { const d = cycleDate(); d.setDate(d.getDate() - i); d.setHours(12, 0, 0, 0); days.push(dkey(d)); }
   const S = allStores(), min = {}, game = {}, tune = {};
   S.forEach(({ d }) => { (d.log || []).forEach(x => { const k = dkey(x.date); min[k] = (min[k] || 0) + (+x.min || 0); }); (d.games || []).forEach(x => { const k = dkey(x.date), v = x.ok / (x.total || 10) * 100; game[k] = Math.max(game[k] || 0, v); }); (d.results || []).forEach(x => { const k = dkey(x.date); tune[k] = Math.max(tune[k] || 0, x.ok); }); });
   ctx.clearRect(0, 0, W, H); const L = 64, B = H - 50, T = 20, cw = (W - L - 20) / 14;
@@ -1235,8 +1464,10 @@ const Letras = (() => {
       const f = ev.target.files[0]; ev.target.value = ''; if (!f) return; msg.textContent = 'Lendo…';
       try {
         const lib = await Score.lib(), buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
-        if (x.score && doc.numPages !== x.score.pages) { msg.textContent = 'Esse PDF não parece ser a partitura de ' + x.title + '.'; return; }
-        await SongDB.putPdf({ id: x.id, buf: buf.slice(0) }); delete cache[x.id];
+        const r = await savePdfFor(x, buf, doc, f.name);
+        if (r === 'cancel') { msg.textContent = 'Partitura não alterada.'; return; }
+        if (r !== 'ok' && r !== 'same') { msg.textContent = r; return; }
+        delete cache[x.id];
         if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
         render();
       } catch (e) { msg.textContent = 'Não consegui abrir esse PDF.'; }
@@ -1291,20 +1522,24 @@ const Letras = (() => {
   const norm = t => (t || '').normalize('NFD').toLowerCase().replace(/[^a-z]/g, '');
   $('lsPdfs').onchange = async ev => {
     const fs = [...ev.target.files]; ev.target.value = ''; if (!fs.length) return; const msg = $('lsPdfMsg'); msg.textContent = 'Lendo ' + fs.length + ' PDF(s)…';
-    const lib = await Score.lib(), done = [], miss = [], used = new Set();
+    const lib = await Score.lib(), done = [], miss = [], skip = [], used = new Set();
     for (const f of fs) {
       try {
         const buf = await f.arrayBuffer(), doc = await lib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
         const pg = await doc.getPage(1), tc = await pg.getTextContent(), txt = norm(tc.items.map(i => i.str).join('') + ' ' + f.name);
         let x = SONGS.find(sg => txt.includes(norm(sg.title)));
         if (x && used.has(x.id)) continue;   // mesmo PDF marcado duas vezes
-        if (!x) { const c = SONGS.filter(sg => !used.has(sg.id) && sg.score && sg.score.pages === doc.numPages); if (c.length === 1) x = c[0]; }
+        if (!x) { const c = SONGS.filter(sg => !used.has(sg.id) && sg.score && sg.score.pages === doc.numPages); if (c.length === 1) x = c[0]; }   // só pelo nº de páginas: savePdfFor pede confirmação
         if (!x || (x.score && x.score.pages !== doc.numPages)) { miss.push(f.name); continue; }
-        used.add(x.id); await SongDB.putPdf({ id: x.id, buf: buf.slice(0) }); delete cache[x.id]; done.push(x.title);
+        used.add(x.id);
+        const r = await savePdfFor(x, buf, doc, f.name);
+        if (r === 'cancel') { skip.push(x.title); continue; }
+        if (r !== 'ok' && r !== 'same') { miss.push(f.name); continue; }
+        delete cache[x.id]; done.push(x.title);
         if (PACK && x.id === PACK.id) { Score.pdf = doc; Score.pages = {}; document.dispatchEvent(new Event('score-ready')); }
       } catch (e) { miss.push(f.name); }
     }
-    msg.textContent = (done.length ? 'Partituras salvas: ' + done.join(', ') + ' ✓' : '') + (miss.length ? (done.length ? ' · ' : '') + 'Não reconheci: ' + miss.join(', ') : '');
+    msg.textContent = [done.length ? 'Partituras salvas: ' + done.join(', ') + ' ✓' : '', skip.length ? 'Não alteradas: ' + skip.join(', ') : '', miss.length ? 'Não reconheci: ' + miss.join(', ') : ''].filter(Boolean).join(' · ');
     render();
   };
   $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
@@ -1317,7 +1552,7 @@ const Letras = (() => {
   $('lsFromPdf').onclick = async () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { const r = await fromPdf(x); if (r) $('lsTa').value = r.filter(o => o.words).map(o => o.t).join('\n'); } catch (e) {} };
   $('lsSave').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; const v = $('lsTa').value.trim(); try { if (v) localStorage.setItem(keyOf(x.id), v); else localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
   $('lsClear').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; try { localStorage.removeItem(keyOf(x.id)); } catch (e) {} render(); };
-  $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { show('eco'); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
+  $('lsOpen').onclick = () => { const x = SONGS.find(s => s.id === sel); if (!x) return; if (PACK && x.id === PACK.id) { ecoOpen(firstSec(), 0); ecoCycle(); return; } try { localStorage.setItem('coral-cur', x.id); location.hash = 'eco'; } catch (e) {} location.reload(); };
   return { open() { if (!sel) sel = PACK ? PACK.id : (SONGS[0] && SONGS[0].id); chips(); render(); } };
 })();
 
@@ -1349,5 +1584,10 @@ $('install').hidden = standalone;
 rSet(); drawRange(); renderDiary();
 show(((location.hash || '').slice(1) && (PACK || !['treinar','corrigir','ensaio','eco'].includes(location.hash.slice(1)))) ? location.hash.slice(1) : 'hoje');
 addEventListener('resize', () => fit());
-document.addEventListener('visibilitychange', () => { if (document.hidden) { stopAll(); tunerOff(); rMicOff(); } });
+// segundo plano / tela bloqueada / troca de app: para som, gravação e microfone
+function stopEverything() { stopAll(); try { gameStop(); } catch (e) {} try { tunerOff(); } catch (e) {} try { rMicOff(); } catch (e) {} Mic.stop(); }
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopEverything(); });
+window.addEventListener('pagehide', stopEverything);
+// acesso só para os testes automáticos (abrir o app com ?teste)
+if (/[?&]teste\b/.test(location.search)) window.__coral = { G, E, Mic, Store, gRange, A, get view() { return view; } };
 })();
