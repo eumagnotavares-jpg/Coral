@@ -1901,6 +1901,22 @@ rSet(); drawRange(); renderDiary();
 { const h = (location.hash || '').slice(1); let aq = ''; try { aq = localStorage.getItem('coral-aq'); } catch (e) {}
   show(h && (PACK || !['ensaio', 'eco', 'ouvir'].includes(h)) ? h : !PACK ? 'diario' : aq === cycleKey() ? 'ouvir' : 'aquecer'); }
 addEventListener('resize', () => fit());
+// Passar o dedo para o lado troca de aba (Aquecer ⇄ Ouvir ⇄ Ensaio ⇄ Ajustes)
+(() => {
+  const ORDER_T = ['aquecer', 'ouvir', 'ensaio', 'diario'];
+  let x0 = 0, y0 = 0, t0 = 0, ok = false;
+  const scrollsSideways = el => { for (let e = el; e && e !== document.body; e = e.parentElement) { if (e.matches && e.matches('input,textarea,select,.seg,.fz')) return true; const cs = getComputedStyle(e); if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && e.scrollWidth > e.clientWidth + 2) return true; } return false; };
+  document.addEventListener('touchstart', ev => { if (ev.touches.length !== 1) { ok = false; return; } const t = ev.touches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); ok = !scrollsSideways(ev.target) && !document.querySelector('.pdfconf'); }, { passive: true });
+  document.addEventListener('touchend', ev => {
+    if (!ok) return; ok = false; const t = ev.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - t0 > 700) return;
+    const cur = view === 'musicas' ? 'diario' : view; let k = ORDER_T.indexOf(cur); if (k < 0) return;
+    k += dx < 0 ? 1 : -1; if (k < 0 || k >= ORDER_T.length) return;
+    const nx = ORDER_T[k]; const tb = document.querySelector('.tabs button[data-v="' + nx + '"]'); if (!tb || tb.hidden) return;
+    show(nx);
+    try { if (!localStorage.getItem('coral-swipe')) localStorage.setItem('coral-swipe', '1'); } catch (e) {}
+  }, { passive: true });
+})();
 // Tamanho da letra do app inteiro (A− / A+ no topo), guardado no aparelho
 const FZ = { v: 1 };
 function applyZoom(z) {
