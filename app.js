@@ -1587,7 +1587,7 @@ const Letras = (() => {
   }
   async function render() {
     const x = SONGS.find(s => s.id === sel), body = $('lsBody'), ed = $('lsEd');
-    ed.hidden = true; $('lsTitle').textContent = x ? x.title : ''; body.style.fontSize = size + 'px';
+    ed.hidden = true; $('lsTitle').textContent = x ? x.title : ''; body.style.fontSize = 'calc(' + size + 'px * var(--fz,1))';
     if (!x) { body.innerHTML = '<p class="lead">Importe as músicas no Diário para ver as letras aqui.</p>'; $('lsTools').hidden = true; return; }
     $('lsTools').hidden = false; body.innerHTML = '<p class="lead">Lendo a letra da sua partitura…</p>'; $('lsNote').textContent = '';
     const t = typed(x.id);
@@ -1663,8 +1663,8 @@ const Letras = (() => {
     msg.textContent = [done.length ? 'Partituras salvas: ' + done.join(', ') + ' ✓' : '', skip.length ? 'Não alteradas: ' + skip.join(', ') : '', miss.length ? 'Não reconheci: ' + miss.join(', ') : ''].filter(Boolean).join(' · ');
     render();
   };
-  $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
-  $('lsSmall').onclick = () => { size = Math.max(10, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = size + 'px'; };
+  $('lsBig').onclick = () => { size = Math.min(34, size + 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = 'calc(' + size + 'px * var(--fz,1))'; };
+  $('lsSmall').onclick = () => { size = Math.max(10, size - 2); try { localStorage.setItem('coral-letra-size', size); } catch (e) {} $('lsBody').style.fontSize = 'calc(' + size + 'px * var(--fz,1))'; };
   $('lsEdit').onclick = async () => {
     const x = SONGS.find(s => s.id === sel); if (!x) return; const ed = $('lsEd');
     if (!ed.hidden) { ed.hidden = true; return; }
@@ -1905,7 +1905,7 @@ addEventListener('resize', () => fit());
 const FZ = { v: 1 };
 function applyZoom(z) {
   FZ.v = Math.max(0.8, Math.min(1.6, Math.round(z * 10) / 10));
-  const w = document.querySelector('.wrap'); if (w) { w.style.zoom = FZ.v; w.style.width = FZ.v === 1 ? '' : 'calc(' + (100 / FZ.v).toFixed(3) + 'vw)'; w.style.maxWidth = FZ.v === 1 ? '' : Math.round(760 / FZ.v) + 'px'; w.style.boxSizing = 'border-box'; }
+  document.documentElement.style.setProperty('--fz', String(FZ.v));   // todas as letras do app usam calc(tamanho × --fz)
   $('fzVal').textContent = Math.round(FZ.v * 100) + '%'; $('fzMinus').disabled = FZ.v <= 0.8; $('fzPlus').disabled = FZ.v >= 1.6;
   try { localStorage.setItem('coral-zoom', String(FZ.v)); } catch (e) {}
 }
