@@ -1901,6 +1901,17 @@ rSet(); drawRange(); renderDiary();
 { const h = (location.hash || '').slice(1); let aq = ''; try { aq = localStorage.getItem('coral-aq'); } catch (e) {}
   show(h && (PACK || !['ensaio', 'eco', 'ouvir'].includes(h)) ? h : !PACK ? 'diario' : aq === cycleKey() ? 'ouvir' : 'aquecer'); }
 addEventListener('resize', () => fit());
+// Tamanho da letra do app inteiro (A− / A+ no topo), guardado no aparelho
+const FZ = { v: 1 };
+function applyZoom(z) {
+  FZ.v = Math.max(0.8, Math.min(1.6, Math.round(z * 10) / 10));
+  const w = document.querySelector('.wrap'); if (w) { w.style.zoom = FZ.v; w.style.width = FZ.v === 1 ? '' : 'calc(' + (100 / FZ.v).toFixed(3) + 'vw)'; w.style.maxWidth = FZ.v === 1 ? '' : Math.round(760 / FZ.v) + 'px'; w.style.boxSizing = 'border-box'; }
+  $('fzVal').textContent = Math.round(FZ.v * 100) + '%'; $('fzMinus').disabled = FZ.v <= 0.8; $('fzPlus').disabled = FZ.v >= 1.6;
+  try { localStorage.setItem('coral-zoom', String(FZ.v)); } catch (e) {}
+}
+$('fzMinus').onclick = () => applyZoom(FZ.v - 0.1);
+$('fzPlus').onclick = () => applyZoom(FZ.v + 0.1);
+{ let z = 1; try { z = parseFloat(localStorage.getItem('coral-zoom')) || 1; } catch (e) {} applyZoom(z); }
 // segundo plano / tela bloqueada / troca de app: para som, gravação e microfone
 function stopEverything() { stopAll(); try { if (AF.on) afStop(); } catch (e) {} try { gameStop(); } catch (e) {} try { tunerOff(); } catch (e) {} try { rMicOff(); } catch (e) {} Mic.stop(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopEverything(); });

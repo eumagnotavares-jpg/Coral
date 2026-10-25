@@ -352,6 +352,10 @@ details.fsyncd summary{font-size:11px}
 #oProg,#oNum,#oSpdCap{font-size:10.3px}
 .orowtop select{font-size:12px;padding:7px 10px}
 .chk input{width:16px;height:16px}
+/* tamanho da letra escolhido pela pessoa */
+.fz{margin-left:auto;display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:1px}
+.fz button{font:700 11px var(--f-body);border:0;background:transparent;color:var(--ink);padding:5px 9px;border-radius:999px;cursor:pointer}
+.fz span{font-size:10px;color:var(--muted);min-width:30px;text-align:center}
 </style>
 </head>
 <body>
@@ -359,6 +363,7 @@ details.fsyncd summary{font-size:11px}
   <header>
     <h1>Coral <span>· Tenor</span></h1>
     <span class="song" id="songName">…</span>
+    <div class="fz" role="group" aria-label="Tamanho da letra"><button id="fzMinus" aria-label="Diminuir a letra">A−</button><span id="fzVal">100%</span><button id="fzPlus" aria-label="Aumentar a letra">A+</button></div>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="Seções">
